@@ -9,18 +9,29 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
-import { UserAvatarProfile } from '@/components/user-avatar-profile';
-import { SignOutButton, useUser } from '@clerk/nextjs';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { useUser } from '@/contexts/UserContext';
 import { useRouter } from 'next/navigation';
+
 export function UserNav() {
-  const { user } = useUser();
+  const { profile, signOut } = useUser();
   const router = useRouter();
-  if (user) {
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.push('/login');
+  };
+
+  if (profile) {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant='ghost' className='relative h-8 w-8 rounded-full'>
-            <UserAvatarProfile user={user} />
+            <Avatar className='h-8 w-8'>
+              <AvatarFallback>
+                {profile.full_name?.slice(0, 2)?.toUpperCase() || 'C3'}
+              </AvatarFallback>
+            </Avatar>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -32,28 +43,31 @@ export function UserNav() {
           <DropdownMenuLabel className='font-normal'>
             <div className='flex flex-col space-y-1'>
               <p className='text-sm leading-none font-medium'>
-                {user.fullName}
+                {profile.full_name}
               </p>
               <p className='text-muted-foreground text-xs leading-none'>
-                {user.emailAddresses[0].emailAddress}
+                {profile.email}
               </p>
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
             <DropdownMenuItem onClick={() => router.push('/dashboard/profile')}>
-              Profile
+              Perfil
             </DropdownMenuItem>
-            <DropdownMenuItem>Billing</DropdownMenuItem>
-            <DropdownMenuItem>Settings</DropdownMenuItem>
-            <DropdownMenuItem>New Team</DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => router.push('/dashboard/settings')}
+            >
+              Configuración
+            </DropdownMenuItem>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>
-            <SignOutButton redirectUrl='/auth/sign-in' />
+          <DropdownMenuItem onClick={handleSignOut}>
+            Cerrar sesión
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     );
   }
+  return null;
 }
