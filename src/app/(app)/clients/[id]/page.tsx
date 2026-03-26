@@ -61,6 +61,30 @@ export default function ClientDetailPage() {
   const [loading, setLoading] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
 
+  type ProgressState = {
+    hasDiagnostic: boolean;
+    hasCredentials: boolean;
+    hasNap: boolean;
+    briefApproved: boolean;
+    personaApproved: boolean;
+    ofvApproved: boolean;
+    hasGbpDescription: boolean;
+    hasApprovedPhotos: boolean;
+    previewSent: boolean;
+  };
+
+  const [progress, setProgress] = useState<ProgressState>({
+    hasDiagnostic: false,
+    hasCredentials: false,
+    hasNap: false,
+    briefApproved: false,
+    personaApproved: false,
+    ofvApproved: false,
+    hasGbpDescription: false,
+    hasApprovedPhotos: false,
+    previewSent: false
+  });
+
   const fetchClient = async () => {
     if (!tenantId || !id) return;
     const { data, error } = await supabase
@@ -72,6 +96,42 @@ export default function ClientDetailPage() {
     if (!error && data) {
       setClient(data);
     }
+
+    // Fetch progress checklist data in parallel
+    const [
+      { data: diagnosticData },
+      { data: credentialsData },
+      { data: napData },
+      { data: briefData },
+      { data: personaData },
+      { data: ofvData },
+      { data: gbpData },
+      { data: photosData },
+      { data: previewData }
+    ] = await Promise.all([
+      supabase.from('diagnostics').select('id').eq('client_id', id).eq('tenant_id', tenantId).limit(1).maybeSingle(),
+      supabase.from('credentials').select('id').eq('client_id', id).eq('tenant_id', tenantId).limit(1).maybeSingle(),
+      supabase.from('nap_checks').select('id').eq('client_id', id).eq('tenant_id', tenantId).limit(1).maybeSingle(),
+      supabase.from('briefs').select('status').eq('client_id', id).eq('tenant_id', tenantId).eq('status', 'approved').limit(1).maybeSingle(),
+      supabase.from('buyer_personas').select('status').eq('client_id', id).eq('tenant_id', tenantId).eq('status', 'approved').limit(1).maybeSingle(),
+      supabase.from('offers').select('status').eq('client_id', id).eq('tenant_id', tenantId).eq('status', 'approved').limit(1).maybeSingle(),
+      supabase.from('gbp_profiles').select('description').eq('client_id', id).eq('tenant_id', tenantId).limit(1).maybeSingle(),
+      supabase.from('client_photos').select('id').eq('client_id', id).eq('tenant_id', tenantId).eq('approved', true).limit(1).maybeSingle(),
+      supabase.from('previews').select('id').eq('client_id', id).eq('tenant_id', tenantId).limit(1).maybeSingle()
+    ]);
+
+    setProgress({
+      hasDiagnostic: !!diagnosticData,
+      hasCredentials: !!credentialsData,
+      hasNap: !!napData,
+      briefApproved: !!briefData,
+      personaApproved: !!personaData,
+      ofvApproved: !!ofvData,
+      hasGbpDescription: !!(gbpData?.description),
+      hasApprovedPhotos: !!photosData,
+      previewSent: !!previewData
+    });
+
     setLoading(false);
   };
 
@@ -164,17 +224,48 @@ export default function ClientDetailPage() {
         </Card>
 
         <Tabs defaultValue='overview'>
-          <TabsList>
+          <TabsList className='flex-wrap h-auto'>
             <TabsTrigger value='overview'>Resumen</TabsTrigger>
             <TabsTrigger value='diagnostic'>Diagnóstico</TabsTrigger>
             <TabsTrigger value='credentials'>Credenciales</TabsTrigger>
             <TabsTrigger value='nap'>NAP</TabsTrigger>
+            <TabsTrigger value='brief'>Brief & Persona</TabsTrigger>
             <TabsTrigger value='photos'>Fotos</TabsTrigger>
             <TabsTrigger value='gbp'>GBP</TabsTrigger>
           </TabsList>
 
           <TabsContent value='overview' className='mt-4'>
             <div className='grid gap-4 sm:grid-cols-2'>
+              {/* Progress Checklist */}
+              <Card className='sm:col-span-2'>
+                <CardHeader>
+                  <CardTitle className='text-base'>Progreso del cliente</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className='grid gap-2 sm:grid-cols-2'>
+                    {[
+                      { label: 'Diagnóstico completado', done: progress.hasDiagnostic },
+                      { label: 'Credenciales verificadas', done: progress.hasCredentials },
+                      { label: 'NAP verificado', done: progress.hasNap },
+                      { label: 'Brief aprobado', done: progress.briefApproved },
+                      { label: 'Buyer Persona aprobada', done: progress.personaApproved },
+                      { label: 'OFV aprobado', done: progress.ofvApproved },
+                      { label: 'GBP description generada', done: progress.hasGbpDescription },
+                      { label: 'Fotos subidas y aprobadas', done: progress.hasApprovedPhotos },
+                      { label: 'Preview enviado', done: progress.previewSent }
+                    ].map((item) => (
+                      <div key={item.label} className='flex items-center gap-2'>
+                        <span className={`text-sm ${item.done ? 'text-green-600' : 'text-muted-foreground'}`}>
+                          {item.done ? '✅' : '⬜'} {item.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className='text-xs text-muted-foreground mt-3'>
+                    {Object.values(progress).filter(Boolean).length} / {Object.values(progress).length} completados
+                  </p>
+                </CardContent>
+              </Card>
               <Card>
                 <CardHeader>
                   <CardTitle className='text-base'>
@@ -307,6 +398,35 @@ export default function ClientDetailPage() {
                 <Button asChild>
                   <Link href={`/onboarding/nap/${client.id}`}>
                     Verificar NAP
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value='brief' className='mt-4'>
+            <Card>
+              <CardContent className='py-8 text-center'>
+                <p className='text-muted-foreground mb-2'>
+                  Generación de contenido con IA
+                </p>
+                <p className='text-sm text-muted-foreground mb-4'>
+                  Brief · Buyer Persona · Oferta de Valor
+                </p>
+                <div className='flex gap-2 justify-center flex-wrap'>
+                  {progress.briefApproved && (
+                    <Badge className='bg-green-100 text-green-800 border-green-200'>Brief ✓</Badge>
+                  )}
+                  {progress.personaApproved && (
+                    <Badge className='bg-green-100 text-green-800 border-green-200'>Persona ✓</Badge>
+                  )}
+                  {progress.ofvApproved && (
+                    <Badge className='bg-green-100 text-green-800 border-green-200'>OFV ✓</Badge>
+                  )}
+                </div>
+                <Button asChild className='mt-4'>
+                  <Link href={`/onboarding/brief/${client.id}`}>
+                    Abrir Brief & Persona
                   </Link>
                 </Button>
               </CardContent>

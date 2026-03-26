@@ -16,10 +16,13 @@ import { Label } from '@/components/ui/label';
 import { useUser } from '@/contexts/UserContext';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { logActivity } from '@/lib/activity';
+import { generateAltText } from '@/lib/edge-functions';
 import { useCallback, useEffect, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
+import { Icons } from '@/components/icons';
+import { Input } from '@/components/ui/input';
 
 const PHOTO_CATEGORIES = [
   { value: 'logo', label: 'Logo' },
@@ -41,6 +44,7 @@ type Photo = {
   category: string;
   approved: boolean;
   alt_text_auto: string | null;
+  alt_text_final: string | null;
   created_at: string;
 };
 
@@ -53,6 +57,9 @@ export default function PhotosPage() {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [generatingAltText, setGeneratingAltText] = useState<Record<string, boolean>>({});
+  const [editingAltText, setEditingAltText] = useState<Record<string, string>>({});
+  const [savingAltText, setSavingAltText] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!userLoading && tenantId && clientId) {
@@ -138,6 +145,32 @@ export default function PhotosPage() {
               clientId,
               metadata: { file_name: file.name }
             });
+
+            // Auto-generate alt text after upload
+            setGeneratingAltText((prev) => ({ ...prev, [photoRecord.id]: true }));
+            try {
+              await generateAltText({ photoId: photoRecord.id, clientId });
+              // Refresh the photo record to get the generated alt text
+              const { data: updatedPhoto } = await supabase
+                .from('client_photos')
+                .select('*')
+                .eq('id', photoRecord.id)
+                .single();
+              if (updatedPhoto) {
+                setPhotos((prev) =>
+                  prev.map((p) => (p.id === photoRecord.id ? updatedPhoto : p))
+                );
+              }
+            } catch (altErr) {
+              console.error('Alt text generation failed:', altErr);
+              // Non-blocking: don't show error toast for alt text failure
+            } finally {
+              setGeneratingAltText((prev) => {
+                const next = { ...prev };
+                delete next[photoRecord.id];
+                return next;
+              });
+            }
           }
 
           toast.success(`${file.name} subida correctamente`);
@@ -192,6 +225,50 @@ export default function PhotosPage() {
         entityId: photo.id,
         clientId,
         metadata: { file_name: photo.file_name }
+      });
+    }
+  };
+
+  const startEditingAltText = (photo: Photo) => {
+    const currentAlt = photo.alt_text_final || photo.alt_text_auto || '';
+    setEditingAltText((prev) => ({ ...prev, [photo.id]: currentAlt }));
+  };
+
+  const cancelEditingAltText = (photoId: string) => {
+    setEditingAltText((prev) => {
+      const next = { ...prev };
+      delete next[photoId];
+      return next;
+    });
+  };
+
+  const saveAltText = async (photo: Photo) => {
+    const newAltText = editingAltText[photo.id];
+    if (newAltText === undefined) return;
+
+    setSavingAltText((prev) => ({ ...prev, [photo.id]: true }));
+    try {
+      await supabase
+        .from('client_photos')
+        .update({ alt_text_final: newAltText })
+        .eq('id', photo.id)
+        .eq('tenant_id', tenantId);
+
+      setPhotos((prev) =>
+        prev.map((p) =>
+          p.id === photo.id ? { ...p, alt_text_final: newAltText } : p
+        )
+      );
+      cancelEditingAltText(photo.id);
+      toast.success('Alt text guardado');
+    } catch (err) {
+      console.error('Error saving alt text:', err);
+      toast.error('Error al guardar el alt text');
+    } finally {
+      setSavingAltText((prev) => {
+        const next = { ...prev };
+        delete next[photo.id];
+        return next;
       });
     }
   };
@@ -266,13 +343,21 @@ export default function PhotosPage() {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={photo.public_url}
-                    alt={photo.alt_text_auto || photo.file_name}
+                    alt={photo.alt_text_final || photo.alt_text_auto || photo.file_name}
                     className='h-full w-full object-cover'
                   />
                   {photo.approved && (
                     <Badge className='absolute top-2 right-2 text-xs'>
                       ✓ Aprobada
                     </Badge>
+                  )}
+                  {generatingAltText[photo.id] && (
+                    <div className='absolute inset-0 bg-black/40 flex items-center justify-center'>
+                      <div className='text-white text-center'>
+                        <Icons.spinner className='h-6 w-6 animate-spin mx-auto mb-1' />
+                        <p className='text-xs'>Generando alt text...</p>
+                      </div>
+                    </div>
                   )}
                 </div>
                 <CardContent className='p-3 space-y-2'>
@@ -315,10 +400,61 @@ export default function PhotosPage() {
                       Eliminar
                     </Button>
                   </div>
-                  {photo.alt_text_auto && (
-                    <p className='text-xs text-muted-foreground truncate'>
-                      {photo.alt_text_auto}
-                    </p>
+
+                  {/* Alt Text Section */}
+                  {editingAltText[photo.id] !== undefined ? (
+                    <div className='space-y-1'>
+                      <Input
+                        value={editingAltText[photo.id]}
+                        onChange={(e) =>
+                          setEditingAltText((prev) => ({
+                            ...prev,
+                            [photo.id]: e.target.value
+                          }))
+                        }
+                        className='h-7 text-xs'
+                        placeholder='Alt text descriptivo...'
+                      />
+                      <div className='flex gap-1'>
+                        <Button
+                          size='sm'
+                          className='h-6 text-xs flex-1'
+                          onClick={() => saveAltText(photo)}
+                          disabled={!!savingAltText[photo.id]}
+                        >
+                          {savingAltText[photo.id] ? (
+                            <Icons.spinner className='h-3 w-3 animate-spin' />
+                          ) : (
+                            'Guardar'
+                          )}
+                        </Button>
+                        <Button
+                          size='sm'
+                          variant='ghost'
+                          className='h-6 text-xs'
+                          onClick={() => cancelEditingAltText(photo.id)}
+                        >
+                          Cancelar
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className='flex items-start justify-between gap-1'>
+                      <p className='text-xs text-muted-foreground line-clamp-2 flex-1'>
+                        {photo.alt_text_final || photo.alt_text_auto || (
+                          <span className='italic'>Sin alt text</span>
+                        )}
+                      </p>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        className='h-5 text-xs px-1 shrink-0'
+                        onClick={() => startEditingAltText(photo)}
+                        title='Editar alt text'
+                      >
+                        ✏️
+                      </Button>
+                    </div>
                   )}
                 </CardContent>
               </Card>

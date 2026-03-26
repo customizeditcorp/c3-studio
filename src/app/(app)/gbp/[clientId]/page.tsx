@@ -19,9 +19,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { useUser } from '@/contexts/UserContext';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { logActivity } from '@/lib/activity';
+import { generateContent } from '@/lib/edge-functions';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
+import { Icons } from '@/components/icons';
 
 const GBP_ATTRIBUTES = [
   { id: 'spanish', label: 'Se habla español' },
@@ -88,6 +90,11 @@ export default function GBPPage() {
   const [newPostContent, setNewPostContent] = useState('');
   const [newPostCta, setNewPostCta] = useState('call');
   const [savingPost, setSavingPost] = useState(false);
+
+  // AI generation state
+  const [generatingDescription, setGeneratingDescription] = useState(false);
+  const [generatingPost, setGeneratingPost] = useState(false);
+  const [postTopic, setPostTopic] = useState('');
 
   useEffect(() => {
     if (!userLoading && tenantId && clientId) {
@@ -244,6 +251,55 @@ export default function GBPPage() {
     }
   };
 
+  const handleGenerateDescription = async () => {
+    if (!tenantId || !user) return;
+    setGeneratingDescription(true);
+    try {
+      const result = await generateContent({
+        step: 'gbp_description',
+        clientId
+      }) as { content?: string; generated_text?: string };
+
+      const generatedText = result.content || result.generated_text || '';
+      if (generatedText) {
+        setDescription(generatedText.slice(0, 750));
+        toast.success('Descripción generada. Edítala si lo deseas y guarda.');
+      } else {
+        toast.error('No se recibió contenido del servidor');
+      }
+    } catch (error) {
+      console.error('Error generating description:', error);
+      toast.error(`Error al generar la descripción: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    } finally {
+      setGeneratingDescription(false);
+    }
+  };
+
+  const handleGeneratePost = async () => {
+    if (!tenantId || !user) return;
+    setGeneratingPost(true);
+    try {
+      const result = await generateContent({
+        step: 'gbp_posts',
+        clientId,
+        inputData: { post_topic: postTopic || undefined }
+      }) as { content?: string; generated_text?: string };
+
+      const generatedText = result.content || result.generated_text || '';
+      if (generatedText) {
+        setNewPostContent(generatedText);
+        toast.success('Post generado. Edítalo si lo deseas.');
+      } else {
+        toast.error('No se recibió contenido del servidor');
+      }
+    } catch (error) {
+      console.error('Error generating post:', error);
+      toast.error(`Error al generar el post: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    } finally {
+      setGeneratingPost(false);
+    }
+  };
+
   const toggleAttribute = (attrId: string) => {
     setAttributes((prev) =>
       prev.includes(attrId)
@@ -325,12 +381,31 @@ export default function GBPPage() {
                   />
                 </div>
                 <div className='space-y-2 sm:col-span-2'>
-                  <Label>
-                    Descripción{' '}
-                    <span className='text-xs text-muted-foreground'>
-                      ({description.length}/750)
-                    </span>
-                  </Label>
+                  <div className='flex items-center justify-between'>
+                    <Label>
+                      Descripción{' '}
+                      <span className='text-xs text-muted-foreground'>
+                        ({description.length}/750)
+                      </span>
+                    </Label>
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      onClick={handleGenerateDescription}
+                      disabled={generatingDescription}
+                      className='h-7 text-xs'
+                    >
+                      {generatingDescription ? (
+                        <>
+                          <Icons.spinner className='mr-1 h-3 w-3 animate-spin' />
+                          Generando...
+                        </>
+                      ) : (
+                        '✨ Generar descripción con IA'
+                      )}
+                    </Button>
+                  </div>
                   <Textarea
                     value={description}
                     onChange={(e) =>
@@ -417,6 +492,32 @@ export default function GBPPage() {
                 <CardTitle className='text-base'>Nueva publicación</CardTitle>
               </CardHeader>
               <CardContent className='space-y-3'>
+                {/* AI Post Generator */}
+                <div className='flex gap-2'>
+                  <Input
+                    value={postTopic}
+                    onChange={(e) => setPostTopic(e.target.value)}
+                    placeholder='Tema del post (ej: promo verano, trabajo completado...)'
+                    className='h-8 text-sm flex-1'
+                  />
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={handleGeneratePost}
+                    disabled={generatingPost}
+                    className='h-8 text-xs whitespace-nowrap'
+                  >
+                    {generatingPost ? (
+                      <>
+                        <Icons.spinner className='mr-1 h-3 w-3 animate-spin' />
+                        Generando...
+                      </>
+                    ) : (
+                      '✨ Generar post'
+                    )}
+                  </Button>
+                </div>
                 <Textarea
                   value={newPostContent}
                   onChange={(e) => setNewPostContent(e.target.value)}

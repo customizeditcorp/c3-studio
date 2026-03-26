@@ -42,7 +42,8 @@
   ],
   "exclude": [
     "node_modules",
-    "__CLEANUP__"
+    "__CLEANUP__",
+    "supabase"
   ],
   "moduleResolution": [
     "node_modules",

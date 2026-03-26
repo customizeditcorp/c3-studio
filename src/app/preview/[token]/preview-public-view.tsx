@@ -36,10 +36,18 @@ type Props = {
     id: string;
     public_url: string;
     alt_text_auto: string | null;
+    alt_text_final?: string | null;
     category: string;
   }[];
   isExpired: boolean;
   token: string;
+  generatedDescription?: string | null;
+  latestOffer?: {
+    id: string;
+    content: string;
+    status: string;
+    created_at: string;
+  } | null;
 };
 
 export default function PreviewPublicView({
@@ -47,7 +55,9 @@ export default function PreviewPublicView({
   gbpProfile,
   photos,
   isExpired,
-  token
+  token,
+  generatedDescription,
+  latestOffer
 }: Props) {
   const supabase = createClient();
   const [feedback, setFeedback] = useState('');
@@ -57,6 +67,19 @@ export default function PreviewPublicView({
   const client = preview.clients;
   const businessName =
     gbpProfile?.business_name || client?.business_name || 'Negocio';
+  
+  // Use generated description if GBP profile has no description
+  const displayDescription = gbpProfile?.description || generatedDescription;
+  
+  // Parse offer data if available
+  let offerData: { big_promise?: string; guarantee?: string } | null = null;
+  if (latestOffer?.content) {
+    try {
+      offerData = JSON.parse(latestOffer.content);
+    } catch {
+      // not JSON, ignore
+    }
+  }
 
   const handleApprove = async () => {
     setSubmitting(true);
@@ -187,11 +210,26 @@ export default function PreviewPublicView({
                   </div>
                 )}
 
-                {gbpProfile?.description && (
+                {displayDescription && (
                   <div>
                     <p className='text-sm text-gray-600'>
-                      {gbpProfile.description}
+                      {displayDescription}
                     </p>
+                  </div>
+                )}
+                
+                {/* Photos grid - all approved photos */}
+                {photos.length > 3 && (
+                  <div className='grid grid-cols-4 gap-1 mt-2'>
+                    {photos.slice(3, 7).map((photo) => (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        key={photo.id}
+                        src={photo.public_url}
+                        alt={photo.alt_text_final || photo.alt_text_auto || businessName}
+                        className='rounded w-full aspect-square object-cover'
+                      />
+                    ))}
                   </div>
                 )}
 
@@ -252,6 +290,23 @@ export default function PreviewPublicView({
                 </div>
               </div>
 
+              {/* Value Proposition */}
+              {offerData?.big_promise && (
+                <div className='bg-[#FFC300]/10 border-l-4 border-[#FFC300] p-6 mx-6 mt-6 rounded-r-lg'>
+                  <p className='text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1'>
+                    Nuestra promesa
+                  </p>
+                  <p className='text-lg font-bold text-gray-800'>
+                    {offerData.big_promise}
+                  </p>
+                  {offerData.guarantee && (
+                    <p className='text-sm text-gray-600 mt-2'>
+                      🛡️ {offerData.guarantee}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Services */}
               <CardContent className='p-8'>
                 <h2 className='text-xl font-semibold mb-4'>
@@ -270,6 +325,24 @@ export default function PreviewPublicView({
                     </div>
                   ))}
                 </div>
+
+                {/* Photo gallery */}
+                {photos.length > 0 && (
+                  <div className='mt-6'>
+                    <h3 className='text-lg font-semibold mb-3'>Galería</h3>
+                    <div className='grid grid-cols-2 sm:grid-cols-3 gap-2'>
+                      {photos.slice(0, 6).map((photo) => (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          key={photo.id}
+                          src={photo.public_url}
+                          alt={photo.alt_text_final || photo.alt_text_auto || businessName}
+                          className='rounded-lg w-full aspect-square object-cover'
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </section>
