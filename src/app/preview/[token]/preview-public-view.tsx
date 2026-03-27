@@ -15,6 +15,15 @@ type Props = {
     preview_type: string;
     approved: boolean;
     expires_at: string;
+    metadata?: {
+      plan_name?: string;
+      tier?: string;
+      price?: number;
+      price_installment?: number;
+      price_discount?: number;
+      billing?: string;
+      features?: string[];
+    } | null;
     clients: {
       id: string;
       business_name: string;
@@ -348,6 +357,50 @@ export default function PreviewPublicView({
           </section>
         )}
 
+        {/* Plan recommendation from diagnostic */}
+        {preview.metadata?.plan_name && (
+          <section>
+            <h2 className='text-lg font-bold mb-3'>🎯 Plan Recomendado</h2>
+            <Card className='border-[#FF5733]'>
+              <CardHeader className='bg-[#FF5733]/10 rounded-t-lg pb-3'>
+                <CardTitle className='text-[#FF5733]'>{preview.metadata.plan_name}</CardTitle>
+              </CardHeader>
+              <CardContent className='pt-4 space-y-4'>
+                {preview.metadata.tier === 'presencia_digital' && preview.metadata.price_installment ? (
+                  <div className='grid grid-cols-2 gap-3'>
+                    <div className='rounded-xl border-2 border-[#FF5733] bg-[#FF5733]/5 p-4 text-center'>
+                      <p className='text-xs font-semibold text-[#FF5733] uppercase'>Opción A</p>
+                      <p className='text-2xl font-bold text-[#FF5733]'>3 × ${preview.metadata.price_installment.toLocaleString()}</p>
+                      <p className='text-xs text-gray-500'>pagos mensuales</p>
+                      <p className='text-sm font-medium mt-1'>Total $3,300</p>
+                    </div>
+                    <div className='rounded-xl border border-gray-200 bg-gray-50 p-4 text-center relative'>
+                      <span className='absolute -top-2 left-1/2 -translate-x-1/2 bg-green-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full'>5% descuento</span>
+                      <p className='text-xs font-semibold text-gray-500 uppercase'>Opción B</p>
+                      <p className='text-2xl font-bold'>${preview.metadata.price_discount?.toLocaleString()}</p>
+                      <p className='text-xs text-gray-500'>pago único</p>
+                      <p className='text-sm text-green-600 font-medium mt-1'>Ahorras $165</p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className='text-3xl font-bold text-[#FF5733] text-center'>
+                    ${preview.metadata.price?.toLocaleString()}<span className='text-base font-normal text-gray-500'>/{preview.metadata.billing}</span>
+                  </p>
+                )}
+                {preview.metadata.features && preview.metadata.features.length > 0 && (
+                  <ul className='space-y-1'>
+                    {preview.metadata.features.map((f, i) => (
+                      <li key={i} className='flex items-center gap-2 text-sm'>
+                        <span className='text-[#FF5733]'>✓</span> {f}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          </section>
+        )}
+
         {/* Approve / Feedback */}
         {!submitted ? (
           <Card className='border-2 border-[#FF5733]/20'>
@@ -369,7 +422,7 @@ export default function PreviewPublicView({
                   onClick={handleApprove}
                   disabled={submitting}
                 >
-                  ✅ Aprobar diseño
+                  {preview.metadata?.plan_name ? '✅ Aprobar y comenzar' : '✅ Aprobar diseño'}
                 </Button>
                 <Button
                   variant='outline'

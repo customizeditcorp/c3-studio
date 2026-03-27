@@ -39,8 +39,10 @@ function needsPresenciaDigital(
 const PRESENCIA_DIGITAL = {
   tier: 'presencia_digital',
   price: 3300,
-  planName: 'Presencia Digital — $3,300 pago único / 90 días',
-  billing: 'pago único',
+  priceInstallment: 1100,     // 3 x $1,100
+  priceDiscount: 3135,         // $3,300 - 5%
+  planName: 'Presencia Digital — 90 días',
+  billing: '3 pagos de $1,100 · o pago único $3,135',
   features: [
     'Google Business Profile creado y optimizado',
     'Fotos profesionales (sesión básica)',
@@ -50,9 +52,9 @@ const PRESENCIA_DIGITAL = {
     'Opción de continuar con plan mensual al terminar'
   ],
   scripts: [
-    '"Antes de hablar de marketing mensual, necesitamos construir la base. Sin presencia digital, ningún plan mensual va a funcionar. Con $3,300 te ponemos en el mapa en 90 días — y eso es tuyo para siempre."',
-    '"Este paquete resuelve el problema de raíz: que tus clientes no te encuentran. Una vez que estés en Google, hablamos del siguiente nivel."',
-    '"Piénsalo así: si consigues un solo trabajo extra al mes gracias a Google, recuperas la inversión en semanas. Y después del setup, tienes la opción de activar el mantenimiento mensual."'
+    '"¿Prefieres arrancar con los 3 pagos de $1,100 o aprovechar el 5% de descuento con pago único de $3,135?"',
+    '"Son menos de $37 al día por 90 días. Y todo queda tuyo para siempre."',
+    '"Si consigues un solo trabajo extra al mes gracias a Google, recuperas la inversión en semanas."'
   ]
 };
 
@@ -224,6 +226,9 @@ export default function DiagnosticPage() {
 
   // Step 4 - Result
   const [savedDiagnosticId, setSavedDiagnosticId] = useState('');
+  const [savedClientId, setSavedClientId] = useState('');
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [generatingPreview, setGeneratingPreview] = useState(false);
 
   useEffect(() => {
     if (!userLoading && tenantId) {
@@ -336,6 +341,7 @@ export default function DiagnosticPage() {
       });
 
       setSavedDiagnosticId(diagnostic.id);
+      setSavedClientId(clientId);
       toast.success('Diagnóstico guardado correctamente');
     } catch (error) {
       console.error('Error saving diagnostic:', error);
@@ -366,7 +372,60 @@ export default function DiagnosticPage() {
     setExpectation('');
     setClientManagement('');
     setSavedDiagnosticId('');
+    setSavedClientId('');
+    setPreviewUrl('');
     setClientMode('new');
+  };
+
+  const handleGeneratePreview = async () => {
+    if (!savedClientId || !savedDiagnosticId) return;
+    setGeneratingPreview(true);
+    try {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (!authUser) throw new Error('No autenticado');
+
+      // Generate unique token
+      const token = crypto.randomUUID();
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
+
+      // Build preview metadata from current tier result
+      const previewMeta = {
+        diagnostic_id: savedDiagnosticId,
+        tier: tierResult?.tier,
+        plan_name: tierResult?.planName,
+        price: tierResult?.price,
+        price_installment: (tierResult as { priceInstallment?: number })?.priceInstallment,
+        price_discount: (tierResult as { priceDiscount?: number })?.priceDiscount,
+        billing: tierResult?.billing,
+        features: tierResult?.features,
+        scripts: tierResult?.scripts,
+        google_presence: googlePresence,
+        digital_health: digitalHealth,
+        revenue_range: revenueRange
+      };
+
+      const { error } = await supabase
+        .from('previews')
+        .insert({
+          client_id: savedClientId,
+          token,
+          preview_type: 'combined',
+          expires_at: expiresAt.toISOString(),
+          metadata: previewMeta,
+          created_by: authUser.id
+        });
+
+      if (error) throw new Error(error.message);
+
+      const url = `${window.location.origin}/preview/${token}`;
+      setPreviewUrl(url);
+      toast.success('Preview generado — link listo para compartir');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error generando preview');
+    } finally {
+      setGeneratingPreview(false);
+    }
   };
 
   const canProceed = () => {
@@ -871,34 +930,48 @@ export default function DiagnosticPage() {
             {/* Recommended Plan */}
             <Card className='border-primary'>
               <CardHeader className='bg-primary/10 rounded-t-lg'>
-                <div className='flex items-center justify-between'>
-                  <div>
-                    <p className='text-sm font-medium text-muted-foreground'>
-                      Plan Recomendado
-                    </p>
-                    <CardTitle className='text-xl text-primary'>
-                      {tierResult.planName}
-                    </CardTitle>
-                  </div>
-                  <div className='text-right'>
-                    <p className='text-3xl font-bold text-primary'>
-                      ${tierResult.price.toLocaleString()}
-                    </p>
-                    <p className='text-xs text-muted-foreground'>
-                      {tierResult.billing}
-                    </p>
-                  </div>
-                </div>
+                <p className='text-sm font-medium text-muted-foreground'>Plan Recomendado</p>
+                <CardTitle className='text-xl text-primary'>{tierResult.planName}</CardTitle>
               </CardHeader>
-              <CardContent className='pt-4'>
-                <p className='text-sm font-medium mb-2'>¿Qué incluye?</p>
-                <ul className='space-y-1'>
-                  {tierResult.features.map((f, i) => (
-                    <li key={i} className='flex items-center gap-2 text-sm'>
-                      <span className='text-primary'>✓</span> {f}
-                    </li>
-                  ))}
-                </ul>
+              <CardContent className='pt-4 space-y-4'>
+                {/* Dual pricing for Presencia Digital */}
+                {tierResult.tier === 'presencia_digital' && 'priceInstallment' in tierResult ? (
+                  <div className='grid grid-cols-2 gap-3'>
+                    {/* Option A — highlighted (decoy target) */}
+                    <div className='rounded-xl border-2 border-primary bg-primary/5 p-4 text-center flex flex-col gap-1'>
+                      <p className='text-xs font-semibold text-primary uppercase tracking-wide'>Opción A</p>
+                      <p className='text-2xl font-bold text-primary'>3 × $1,100</p>
+                      <p className='text-xs text-muted-foreground'>pagos mensuales</p>
+                      <p className='text-sm font-medium mt-1'>Total $3,300</p>
+                    </div>
+                    {/* Option B — discount */}
+                    <div className='rounded-xl border border-muted bg-muted/30 p-4 text-center flex flex-col gap-1 relative'>
+                      <span className='absolute -top-2 left-1/2 -translate-x-1/2 bg-green-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full'>
+                        5% descuento
+                      </span>
+                      <p className='text-xs font-semibold text-muted-foreground uppercase tracking-wide'>Opción B</p>
+                      <p className='text-2xl font-bold'>$3,135</p>
+                      <p className='text-xs text-muted-foreground'>pago único</p>
+                      <p className='text-sm text-green-600 font-medium mt-1'>Ahorras $165</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className='text-center py-2'>
+                    <p className='text-3xl font-bold text-primary'>${tierResult.price.toLocaleString()}</p>
+                    <p className='text-xs text-muted-foreground'>{tierResult.billing}</p>
+                  </div>
+                )}
+
+                <div>
+                  <p className='text-sm font-medium mb-2'>¿Qué incluye?</p>
+                  <ul className='space-y-1'>
+                    {tierResult.features.map((f, i) => (
+                      <li key={i} className='flex items-center gap-2 text-sm'>
+                        <span className='text-primary'>✓</span> {f}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </CardContent>
             </Card>
 
@@ -940,12 +1013,44 @@ export default function DiagnosticPage() {
                   <Button variant='outline' disabled>
                     📧 Enviar Resumen (próximamente)
                   </Button>
-                  <Button
-                    variant='outline'
-                    onClick={() => router.push('/preview/generator')}
-                  >
-                    🔗 Generar Preview
-                  </Button>
+                  {!previewUrl ? (
+                    <Button
+                      variant='outline'
+                      onClick={handleGeneratePreview}
+                      disabled={generatingPreview}
+                    >
+                      {generatingPreview ? '⏳ Generando...' : '🔗 Generar Preview'}
+                    </Button>
+                  ) : (
+                    <div className='flex flex-col gap-2 w-full'>
+                      <div className='flex gap-2'>
+                        <Button
+                          variant='default'
+                          className='flex-1'
+                          onClick={() => window.open(previewUrl, '_blank')}
+                        >
+                          👁️ Ver Preview
+                        </Button>
+                        <Button
+                          variant='outline'
+                          onClick={() => {
+                            navigator.clipboard.writeText(previewUrl);
+                            toast.success('Link copiado');
+                          }}
+                        >
+                          📋 Copiar
+                        </Button>
+                        <Button
+                          variant='outline'
+                          className='bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
+                          onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent('Hola, aquí está tu preview personalizado: ' + previewUrl)}`, '_blank')}
+                        >
+                          WhatsApp
+                        </Button>
+                      </div>
+                      <p className='text-xs text-muted-foreground truncate'>{previewUrl}</p>
+                    </div>
+                  )}
                   <Button variant='outline' disabled>
                     💳 Enviar Pago (próximamente)
                   </Button>

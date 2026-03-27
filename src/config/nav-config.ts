@@ -27,10 +27,15 @@ export const navGroups: NavGroup[] = [
       },
       {
         title: 'Onboarding',
-        url: '#',
+        url: '/onboarding',
         icon: 'kanban',
         isActive: false,
         items: [
+          {
+            title: 'Brief & Persona',
+            url: '/onboarding/brief',
+            icon: 'page'
+          },
           {
             title: 'Credenciales',
             url: '/onboarding/credentials',
