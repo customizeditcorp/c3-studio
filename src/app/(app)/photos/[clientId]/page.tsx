@@ -80,7 +80,6 @@ export default function PhotosPage() {
       .from('client_photos')
       .select('*')
       .eq('client_id', clientId)
-      .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false });
 
     if (photosData) setPhotos(photosData);
@@ -120,7 +119,6 @@ export default function PhotosPage() {
           const { data: photoRecord } = await supabase
             .from('client_photos')
             .insert({
-              tenant_id: tenantId,
               client_id: clientId,
               file_name: file.name,
               storage_path: storagePath,
@@ -195,8 +193,7 @@ export default function PhotosPage() {
     await supabase
       .from('client_photos')
       .update({ category })
-      .eq('id', photoId)
-      .eq('tenant_id', tenantId);
+      .eq('id', photoId);
     setPhotos((prev) =>
       prev.map((p) => (p.id === photoId ? { ...p, category } : p))
     );
@@ -207,8 +204,7 @@ export default function PhotosPage() {
     await supabase
       .from('client_photos')
       .update({ approved: newApproved })
-      .eq('id', photo.id)
-      .eq('tenant_id', tenantId);
+      .eq('id', photo.id);
 
     setPhotos((prev) =>
       prev.map((p) =>
@@ -251,8 +247,7 @@ export default function PhotosPage() {
       await supabase
         .from('client_photos')
         .update({ alt_text_final: newAltText })
-        .eq('id', photo.id)
-        .eq('tenant_id', tenantId);
+        .eq('id', photo.id);
 
       setPhotos((prev) =>
         prev.map((p) =>
@@ -280,8 +275,7 @@ export default function PhotosPage() {
     await supabase
       .from('client_photos')
       .delete()
-      .eq('id', photo.id)
-      .eq('tenant_id', tenantId);
+      .eq('id', photo.id);
     setPhotos((prev) => prev.filter((p) => p.id !== photo.id));
     toast.success('Foto eliminada');
   };

@@ -109,15 +109,15 @@ export default function ClientDetailPage() {
       { data: photosData },
       { data: previewData }
     ] = await Promise.all([
-      supabase.from('diagnostics').select('id').eq('client_id', id).eq('tenant_id', tenantId).limit(1).maybeSingle(),
-      supabase.from('credentials').select('id').eq('client_id', id).eq('tenant_id', tenantId).limit(1).maybeSingle(),
-      supabase.from('nap_checks').select('id').eq('client_id', id).eq('tenant_id', tenantId).limit(1).maybeSingle(),
-      supabase.from('briefs').select('status').eq('client_id', id).eq('tenant_id', tenantId).eq('status', 'approved').limit(1).maybeSingle(),
-      supabase.from('buyer_personas').select('status').eq('client_id', id).eq('tenant_id', tenantId).eq('status', 'approved').limit(1).maybeSingle(),
-      supabase.from('offers').select('status').eq('client_id', id).eq('tenant_id', tenantId).eq('status', 'approved').limit(1).maybeSingle(),
-      supabase.from('gbp_profiles').select('description').eq('client_id', id).eq('tenant_id', tenantId).limit(1).maybeSingle(),
-      supabase.from('client_photos').select('id').eq('client_id', id).eq('tenant_id', tenantId).eq('approved', true).limit(1).maybeSingle(),
-      supabase.from('previews').select('id').eq('client_id', id).eq('tenant_id', tenantId).limit(1).maybeSingle()
+      supabase.from('diagnostics').select('id').eq('client_id', id).limit(1).maybeSingle(),
+      supabase.from('credentials').select('id').eq('client_id', id).limit(1).maybeSingle(),
+      supabase.from('nap_checks').select('id').eq('client_id', id).limit(1).maybeSingle(),
+      supabase.from('briefs').select('status').eq('client_id', id).eq('status', 'approved').limit(1).maybeSingle(),
+      supabase.from('buyer_personas').select('status').eq('client_id', id).eq('status', 'approved').limit(1).maybeSingle(),
+      supabase.from('offers').select('status').eq('client_id', id).eq('status', 'approved').limit(1).maybeSingle(),
+      supabase.from('gbp_profiles').select('description').eq('client_id', id).limit(1).maybeSingle(),
+      supabase.from('client_photos').select('id').eq('client_id', id).eq('approved', true).limit(1).maybeSingle(),
+      supabase.from('previews').select('id').eq('client_id', id).limit(1).maybeSingle()
     ]);
 
     setProgress({

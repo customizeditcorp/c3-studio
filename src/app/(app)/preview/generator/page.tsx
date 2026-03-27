@@ -61,13 +61,18 @@ export default function PreviewGeneratorPage() {
       .order('business_name');
     if (clientsData) setClients(clientsData);
 
-    const { data: previewsData } = await supabase
-      .from('previews')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false })
-      .limit(20);
-    if (previewsData) setGeneratedPreviews(previewsData);
+    const clientIds = clientsData?.map((c) => c.id) ?? [];
+    let previewsData: Preview[] = [];
+    if (clientIds.length > 0) {
+      const { data } = await supabase
+        .from('previews')
+        .select('*')
+        .in('client_id', clientIds)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (data) previewsData = data;
+    }
+    setGeneratedPreviews(previewsData);
 
     setLoading(false);
   };
@@ -87,7 +92,6 @@ export default function PreviewGeneratorPage() {
       const { data: preview, error } = await supabase
         .from('previews')
         .insert({
-          tenant_id: tenantId,
           client_id: selectedClientId,
           token,
           preview_type: previewType,

@@ -120,7 +120,6 @@ export default function GBPPage() {
       .from('gbp_profiles')
       .select('*')
       .eq('client_id', clientId)
-      .eq('tenant_id', tenantId)
       .single();
 
     if (gbpData) {
@@ -144,7 +143,6 @@ export default function GBPPage() {
       .from('gbp_posts')
       .select('*')
       .eq('client_id', clientId)
-      .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false });
 
     if (postsData) setPosts(postsData);
@@ -156,7 +154,6 @@ export default function GBPPage() {
     setSaving(true);
 
     const data = {
-      tenant_id: tenantId,
       client_id: clientId,
       business_name: businessName,
       primary_category: primaryCategory,
@@ -178,8 +175,7 @@ export default function GBPPage() {
         await supabase
           .from('gbp_profiles')
           .update(data)
-          .eq('id', gbpProfileId)
-          .eq('tenant_id', tenantId);
+          .eq('id', gbpProfileId);
       } else {
         const { data: newProfile } = await supabase
           .from('gbp_profiles')
@@ -219,7 +215,6 @@ export default function GBPPage() {
       const { data: post } = await supabase
         .from('gbp_posts')
         .insert({
-          tenant_id: tenantId,
           client_id: clientId,
           content: newPostContent,
           cta_type: newPostCta,

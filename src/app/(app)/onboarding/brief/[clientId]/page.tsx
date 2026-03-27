@@ -107,7 +107,6 @@ export default function BriefPage() {
       .from('briefs')
       .select('id, content, status, created_at, tokens_used')
       .eq('client_id', clientId)
-      .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -118,7 +117,6 @@ export default function BriefPage() {
       .from('buyer_personas')
       .select('id, content, status, created_at, tokens_used')
       .eq('client_id', clientId)
-      .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -129,7 +127,6 @@ export default function BriefPage() {
       .from('offers')
       .select('id, content, status, created_at, tokens_used')
       .eq('client_id', clientId)
-      .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -175,7 +172,6 @@ export default function BriefPage() {
         .from('briefs')
         .select('id, content, status, created_at, tokens_used')
         .eq('client_id', clientId)
-        .eq('tenant_id', tenantId)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -219,8 +215,7 @@ export default function BriefPage() {
       await supabase
         .from('briefs')
         .update({ status: 'approved' })
-        .eq('id', brief.id)
-        .eq('tenant_id', tenantId);
+        .eq('id', brief.id);
 
       setBrief((prev) => prev ? { ...prev, status: 'approved' } : prev);
 
@@ -269,7 +264,6 @@ export default function BriefPage() {
         .from('buyer_personas')
         .select('id, content, status, created_at, tokens_used')
         .eq('client_id', clientId)
-        .eq('tenant_id', tenantId)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -312,8 +306,7 @@ export default function BriefPage() {
       await supabase
         .from('buyer_personas')
         .update({ status: 'approved' })
-        .eq('id', persona.id)
-        .eq('tenant_id', tenantId);
+        .eq('id', persona.id);
 
       setPersona((prev) => prev ? { ...prev, status: 'approved' } : prev);
 
@@ -362,7 +355,6 @@ export default function BriefPage() {
         .from('offers')
         .select('id, content, status, created_at, tokens_used')
         .eq('client_id', clientId)
-        .eq('tenant_id', tenantId)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -417,8 +409,7 @@ export default function BriefPage() {
       await supabase
         .from('offers')
         .update({ status: 'approved' })
-        .eq('id', ofv.id)
-        .eq('tenant_id', tenantId);
+        .eq('id', ofv.id);
 
       setOfv((prev) => prev ? { ...prev, status: 'approved' } : prev);
 

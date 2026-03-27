@@ -34,7 +34,11 @@ export async function POST(request: NextRequest) {
     const { data: photo } = await supabase.from('client_photos').select('*').eq('id', photo_id).single();
     if (!photo) return NextResponse.json({ error: 'Photo not found' }, { status: 404 });
 
-    const { data: client } = await supabase.from('clients').select('business_name, industry').eq('id', client_id).single();
+    const { data: client } = await supabase
+      .from('clients')
+      .select('business_name, industry, tenant_id')
+      .eq('id', client_id)
+      .single();
 
     // Get signed URL
     const { data: signedUrlData } = await supabase.storage.from('client-photos').createSignedUrl(photo.storage_path, 300);
@@ -69,7 +73,16 @@ Respond with ONLY the alt text.`
     const altText = claudeResponse.content[0].type === 'text' ? claudeResponse.content[0].text.trim() : '';
 
     await supabase.from('client_photos').update({ alt_text_auto: altText }).eq('id', photo_id);
-    await supabase.from('activity_log').insert({ client_id, action: 'alt_text_generated', entity_type: 'photo', entity_id: photo_id, metadata: { alt_text: altText } });
+    const tenantId = client?.tenant_id;
+    await supabase.from('activity_log').insert({
+      tenant_id: tenantId,
+      client_id,
+      user_id: user.id,
+      action: 'alt_text_generated',
+      entity_type: 'photo',
+      entity_id: photo_id,
+      metadata: { alt_text: altText }
+    });
 
     return NextResponse.json({ success: true, alt_text: altText, photo_id });
 

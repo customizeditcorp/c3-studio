@@ -84,7 +84,11 @@ export default function PreviewPublicView({
   let offerData: { big_promise?: string; guarantee?: string } | null = null;
   if (latestOffer?.content) {
     try {
-      offerData = JSON.parse(latestOffer.content);
+      const content = latestOffer.content;
+      offerData =
+        typeof content === 'string'
+          ? JSON.parse(content)
+          : (content as { big_promise?: string; guarantee?: string });
     } catch {
       // not JSON, ignore
     }

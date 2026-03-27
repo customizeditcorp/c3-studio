@@ -113,7 +113,6 @@ export default function CredentialsPage() {
       .from('credentials')
       .select('*')
       .eq('client_id', clientId)
-      .eq('tenant_id', tenantId)
       .single();
 
     if (credData) {
@@ -156,7 +155,6 @@ export default function CredentialsPage() {
       .map(([k]) => k);
 
     const data = {
-      tenant_id: tenantId,
       client_id: clientId,
       entity_type: entityType,
       legal_name: legalName,
@@ -173,8 +171,7 @@ export default function CredentialsPage() {
         await supabase
           .from('credentials')
           .update(data)
-          .eq('id', credentialId)
-          .eq('tenant_id', tenantId);
+          .eq('id', credentialId);
       } else {
         const { data: newCred } = await supabase
           .from('credentials')

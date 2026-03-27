@@ -105,7 +105,6 @@ export default function NAPPage() {
       .from('nap_checks')
       .select('*')
       .eq('client_id', clientId)
-      .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
       .limit(1)
       .single();
@@ -139,7 +138,6 @@ export default function NAPPage() {
       .map(([k]) => k);
 
     const data = {
-      tenant_id: tenantId,
       client_id: clientId,
       business_name: businessName,
       city,
@@ -156,8 +154,7 @@ export default function NAPPage() {
         await supabase
           .from('nap_checks')
           .update({ ...data, updated_at: new Date().toISOString() })
-          .eq('id', napCheckId)
-          .eq('tenant_id', tenantId);
+          .eq('id', napCheckId);
       } else {
         const { data: newCheck } = await supabase
           .from('nap_checks')

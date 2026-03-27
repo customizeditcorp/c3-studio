@@ -220,11 +220,14 @@ Genera el output en formato JSON + raw_text (markdown). Responde SOLO con JSON v
       }
 
       // Log activity
+      const clientTenantId = (client as { tenant_id: string }).tenant_id;
       await supabase.from('activity_log').insert({
+        tenant_id: clientTenantId,
         client_id,
+        user_id: user.id,
         action: `${step}_generated`,
         entity_type: step,
-        entity_id: savedRecord?.id,
+        entity_id: savedRecord?.id != null ? String(savedRecord.id) : client_id,
         metadata: { prompt_version_id: prompt.id, methodology: prompt.methodology, model: 'claude-sonnet-4-6' }
       });
     }

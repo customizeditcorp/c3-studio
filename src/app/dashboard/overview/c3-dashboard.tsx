@@ -79,11 +79,12 @@ export default function C3Dashboard() {
   }, [tenantId, userLoading]);
 
   const loadDashboard = async () => {
-    // Clients by status
     const { data: clients } = await supabase
       .from('clients')
-      .select('status')
+      .select('id, status')
       .eq('tenant_id', tenantId);
+
+    const clientIds = clients?.map((c) => c.id) ?? [];
 
     const clientsByStatus: Record<string, number> = {};
     let totalClients = 0;
@@ -97,18 +98,20 @@ export default function C3Dashboard() {
       if (c.status === 'onboarding') pendingOnboardings++;
     });
 
-    // Diagnostics this month
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
 
-    const { count: diagCount } = await supabase
-      .from('diagnostics')
-      .select('id', { count: 'exact', head: true })
-      .eq('tenant_id', tenantId)
-      .gte('created_at', startOfMonth.toISOString());
+    let diagCount = 0;
+    if (clientIds.length > 0) {
+      const { count } = await supabase
+        .from('diagnostics')
+        .select('id', { count: 'exact', head: true })
+        .in('client_id', clientIds)
+        .gte('created_at', startOfMonth.toISOString());
+      diagCount = count ?? 0;
+    }
 
-    // Activity log (last 10)
     const { data: activity } = await supabase
       .from('activity_log')
       .select('*')
@@ -120,20 +123,24 @@ export default function C3Dashboard() {
       totalClients,
       activeClients,
       pendingOnboardings,
-      diagnosticsThisMonth: diagCount || 0,
+      diagnosticsThisMonth: diagCount,
       clientsByStatus
     });
 
     setActivityLog(activity || []);
 
-    // Recently approved previews (last 7 days)
-    const { data: approvedPreviewsData } = await supabase
-      .from('previews')
-      .select('id, client_id, approved_at, clients(business_name)')
-      .eq('approved', true)
-      .gte('approved_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
-      .order('approved_at', { ascending: false })
-      .limit(5);
+    let approvedPreviewsData = null;
+    if (clientIds.length > 0) {
+      const { data } = await supabase
+        .from('previews')
+        .select('id, client_id, approved_at, clients(business_name)')
+        .eq('approved', true)
+        .in('client_id', clientIds)
+        .gte('approved_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
+        .order('approved_at', { ascending: false })
+        .limit(5);
+      approvedPreviewsData = data;
+    }
 
     setApprovedPreviews((approvedPreviewsData as unknown as ApprovedPreview[]) || []);
     setLoading(false);
