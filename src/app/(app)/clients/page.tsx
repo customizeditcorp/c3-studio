@@ -76,29 +76,32 @@ export default function ClientsPage() {
   const [showNewClientDialog, setShowNewClientDialog] = useState(false);
 
   const fetchClients = async () => {
-    if (!tenantId) return;
     setLoading(true);
     let query = supabase
       .from('clients')
       .select(
         'id, business_name, industry, contact_first_name, phone, status, tier, created_at'
       )
-      .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false });
+
+    // Filter by tenant if available (RLS handles security regardless)
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId);
+    }
 
     if (statusFilter !== 'all') {
       query = query.eq('status', statusFilter);
     }
 
     const { data, error } = await query;
-    if (!error && data) {
-      setClients(data);
-    }
+    if (error) console.error('Error fetching clients:', error);
+    if (data) setClients(data);
     setLoading(false);
   };
 
   useEffect(() => {
-    if (!userLoading && tenantId) {
+    // Run once auth loading is done, with or without tenantId
+    if (!userLoading) {
       fetchClients();
     }
   }, [tenantId, userLoading, statusFilter]);

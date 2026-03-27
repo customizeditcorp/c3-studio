@@ -32,14 +32,16 @@ export default function OnboardingBriefListPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!tenantId) return;
     const fetchClients = async () => {
-      const { data } = await supabase
+      let query = supabase
         .from('clients')
         .select('id, business_name, industry, status, tier, contact_first_name')
-        .eq('tenant_id', tenantId)
         .in('status', ['diagnosed', 'onboarding', 'negotiating', 'active'])
         .order('created_at', { ascending: false });
+
+      if (tenantId) query = query.eq('tenant_id', tenantId);
+
+      const { data } = await query;
       setClients(data || []);
       setLoading(false);
     };
