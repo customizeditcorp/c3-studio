@@ -7,141 +7,237 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!
 });
 
-// Map each step to its target table and insert fields
-const STEP_CONFIG: Record<
-  string,
-  {
-    table: string;
-    contentField: string;
-    extraFields?: Record<string, unknown>;
-  }
-> = {
-  brief: {
-    table: 'briefs',
-    contentField: 'content'
-  },
-  buyer_persona: {
-    table: 'buyer_personas',
-    contentField: 'content'
-  },
-  offer: {
-    table: 'offers',
-    contentField: 'content'
-  },
-  gbp_description: {
-    table: 'gbp_profiles',
-    contentField: 'description'
-  },
-  gbp_post: {
-    table: 'gbp_posts',
-    contentField: 'content'
-  }
-};
-
 export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies();
-
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
-          getAll() {
-            return cookieStore.getAll();
-          },
+          getAll() { return cookieStore.getAll(); },
           setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              cookieStore.set(name, value, options);
-            });
+            cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
           }
         }
       }
     );
 
-    // Verify auth
-    const {
-      data: { user },
-      error: authError
-    } = await supabase.auth.getUser();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user profile for tenant_id
-    const { data: profile } = await supabase
-      .from('users')
-      .select('tenant_id')
-      .eq('id', user.id)
-      .single();
-
-    if (!profile?.tenant_id) {
-      return NextResponse.json(
-        { error: 'User tenant not found' },
-        { status: 400 }
-      );
-    }
-
     const body = await request.json();
-    const { step, client_id, input_data } = body;
+    const { step, client_id, input_data, save = true } = body;
 
     if (!step || !client_id) {
+      return NextResponse.json({ error: 'step and client_id are required' }, { status: 400 });
+    }
+
+    // 1. Get active prompt for this step
+    const { data: prompt, error: promptError } = await supabase
+      .from('prompt_versions')
+      .select('id, system_prompt, methodology, validation_rules')
+      .eq('step', step)
+      .eq('active', true)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (promptError || !prompt) {
       return NextResponse.json(
-        { error: 'Missing required fields: step, client_id' },
-        { status: 400 }
+        { error: `No active prompt found for step: ${step}` },
+        { status: 404 }
       );
     }
 
-    // 1. Fetch active prompt for this step
-    const { data: promptVersion, error: promptError } = await supabase
-      .from('prompt_versions')
+    // 2. Get client data
+    const { data: client, error: clientError } = await supabase
+      .from('clients')
       .select('*')
-      .eq('step', step)
-      .eq('tenant_id', profile.tenant_id)
-      .eq('is_active', true)
-      .order('version', { ascending: false })
-      .limit(1)
+      .eq('id', client_id)
       .single();
 
-    if (promptError || !promptVersion) {
-      // Fallback: try global prompts (no tenant filter)
-      const { data: globalPrompt } = await supabase
-        .from('prompt_versions')
-        .select('*')
-        .eq('step', step)
-        .eq('is_active', true)
+    if (clientError || !client) {
+      return NextResponse.json({ error: `Client not found: ${client_id}` }, { status: 404 });
+    }
+
+    // 3. Build context chain: brief → persona → OFV → outputs
+    let contextChain = '';
+    const needsBrief = ['buyer_persona', 'ofv', 'gbp_description', 'gbp_posts',
+      'campaign_copy', 'website_home', 'website_service', 'website_location',
+      'nurturing', 'social_content'].includes(step);
+    const needsPersona = ['ofv', 'gbp_description', 'gbp_posts', 'campaign_copy',
+      'website_home', 'website_service', 'website_location', 'nurturing', 'social_content'].includes(step);
+    const needsOffer = ['gbp_description', 'gbp_posts', 'campaign_copy',
+      'website_home', 'website_service', 'website_location', 'nurturing', 'social_content'].includes(step);
+
+    if (needsBrief) {
+      const { data: brief } = await supabase
+        .from('briefs')
+        .select('content, raw_text')
+        .eq('client_id', client_id)
+        .eq('status', 'approved')
         .order('version', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
+      if (brief) contextChain += `\n\n## BRIEF DEL NEGOCIO (APROBADO)\n${brief.raw_text || JSON.stringify(brief.content)}`;
+    }
 
-      if (!globalPrompt) {
-        return NextResponse.json(
-          { error: `No active prompt found for step: ${step}` },
-          { status: 404 }
-        );
+    if (needsPersona) {
+      const { data: persona } = await supabase
+        .from('buyer_personas')
+        .select('content, raw_text')
+        .eq('client_id', client_id)
+        .eq('status', 'approved')
+        .order('version', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (persona) contextChain += `\n\n## BUYER PERSONA (APROBADO)\n${persona.raw_text || JSON.stringify(persona.content)}`;
+    }
+
+    if (needsOffer) {
+      const { data: offer } = await supabase
+        .from('offers')
+        .select('*')
+        .eq('client_id', client_id)
+        .eq('status', 'approved')
+        .order('version', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (offer) contextChain += `\n\n## OFERTA DE VALOR (APROBADA)\nBig Promise: ${offer.big_promise}\nVehículo: ${offer.vehicle_name} — ${offer.vehicle_description}\nQuick Win: ${offer.quick_win}\nGarantía: ${offer.guarantee}`;
+    }
+
+    // 4. Build user message
+    const userMessage = `
+## DATOS DEL CLIENTE
+Negocio: ${client.business_name}
+Industria: ${client.industry}
+Contacto: ${client.contact_first_name || ''} ${client.contact_last_name || ''}
+Teléfono: ${client.phone || 'N/A'}
+Email: ${client.email || 'N/A'}
+Tier: ${client.tier || 'N/A'}
+${contextChain}
+
+## INPUT ADICIONAL DEL OPERADOR
+${input_data ? JSON.stringify(input_data, null, 2) : 'Sin datos adicionales.'}
+
+Genera el output en formato JSON + raw_text (markdown). Responde SOLO con JSON válido, sin backticks ni texto adicional.`;
+
+    // 5. Call Claude API
+    const claudeResponse = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      system: prompt.system_prompt,
+      messages: [{ role: 'user', content: userMessage }]
+    });
+
+    const responseText = claudeResponse.content
+      .filter((c) => c.type === 'text')
+      .map((c) => (c as { type: 'text'; text: string }).text)
+      .join('');
+
+    // 6. Parse response
+    let parsedContent: Record<string, unknown>;
+    let rawText = responseText;
+    try {
+      const cleaned = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      parsedContent = JSON.parse(cleaned);
+      rawText = (parsedContent.raw_text as string) || responseText;
+    } catch {
+      parsedContent = { generated_text: responseText };
+      rawText = responseText;
+    }
+
+    // 7. Save to appropriate table
+    let savedRecord: Record<string, unknown> | null = null;
+
+    if (save) {
+      const tableMap: Record<string, string> = {
+        brief: 'briefs',
+        buyer_persona: 'buyer_personas',
+        ofv: 'offers'
+      };
+
+      const outputSteps = ['gbp_description', 'gbp_posts', 'campaign_copy',
+        'website_home', 'website_service', 'website_location', 'nurturing', 'social_content'];
+
+      if (tableMap[step]) {
+        const table = tableMap[step];
+        const insertData: Record<string, unknown> = {
+          client_id,
+          prompt_version_id: prompt.id,
+          content: parsedContent,
+          raw_text: rawText,
+          status: 'draft',
+          version: 1
+        };
+
+        if (step === 'ofv' && parsedContent) {
+          const { data: latestPersona } = await supabase
+            .from('buyer_personas').select('id').eq('client_id', client_id)
+            .order('created_at', { ascending: false }).limit(1).maybeSingle();
+          if (latestPersona) insertData.persona_id = latestPersona.id;
+          if (parsedContent.big_promise) insertData.big_promise = parsedContent.big_promise;
+          if (parsedContent.vehicle_name) insertData.vehicle_name = parsedContent.vehicle_name;
+          if (parsedContent.vehicle_description) insertData.vehicle_description = parsedContent.vehicle_description;
+          if (parsedContent.quick_win) insertData.quick_win = parsedContent.quick_win;
+          if (parsedContent.decision_frame) insertData.decision_frame = parsedContent.decision_frame;
+          if (parsedContent.guarantee) insertData.guarantee = parsedContent.guarantee;
+          if (parsedContent.urgency) insertData.urgency = parsedContent.urgency;
+          if (parsedContent.social_proof) insertData.social_proof = parsedContent.social_proof;
+          if (parsedContent.deliverables) insertData.deliverables = parsedContent.deliverables;
+        }
+
+        if (step === 'buyer_persona') {
+          const { data: latestBrief } = await supabase
+            .from('briefs').select('id').eq('client_id', client_id)
+            .order('created_at', { ascending: false }).limit(1).maybeSingle();
+          if (latestBrief) insertData.brief_id = latestBrief.id;
+        }
+
+        const { data, error } = await supabase.from(table).insert(insertData).select().single();
+        if (!error) savedRecord = data;
+        else console.error(`Error saving to ${table}:`, error);
+
+      } else if (outputSteps.includes(step)) {
+        const { data: latestOffer } = await supabase
+          .from('offers').select('id').eq('client_id', client_id)
+          .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        const { data, error } = await supabase.from('generated_outputs').insert({
+          client_id,
+          offer_id: latestOffer?.id || null,
+          prompt_version_id: prompt.id,
+          output_type: step,
+          content: parsedContent,
+          language: (parsedContent?.language as string) || 'es',
+          status: 'draft',
+          version: 1
+        }).select().single();
+        if (!error) savedRecord = data;
+        else console.error('Error saving to generated_outputs:', error);
       }
 
-      // Use global prompt
-      return await generateAndSave({
-        supabase,
-        prompt: globalPrompt,
-        step,
-        clientId: client_id,
-        tenantId: profile.tenant_id,
-        userId: user.id,
-        inputData: input_data
+      // Log activity
+      await supabase.from('activity_log').insert({
+        client_id,
+        action: `${step}_generated`,
+        entity_type: step,
+        entity_id: savedRecord?.id,
+        metadata: { prompt_version_id: prompt.id, methodology: prompt.methodology, model: 'claude-sonnet-4-6' }
       });
     }
 
-    return await generateAndSave({
-      supabase,
-      prompt: promptVersion,
+    return NextResponse.json({
+      success: true,
       step,
-      clientId: client_id,
-      tenantId: profile.tenant_id,
-      userId: user.id,
-      inputData: input_data
+      content: parsedContent,
+      raw_text: rawText,
+      saved: savedRecord ? { id: savedRecord.id, table: step } : null,
+      prompt_version: prompt.id
     });
+
   } catch (error) {
     console.error('generate-content error:', error);
     return NextResponse.json(
@@ -149,122 +245,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-async function generateAndSave({
-  supabase,
-  prompt,
-  step,
-  clientId,
-  tenantId,
-  userId,
-  inputData
-}: {
-  supabase: ReturnType<typeof createServerClient>;
-  prompt: { template: string; system_prompt?: string; id: string };
-  step: string;
-  clientId: string;
-  tenantId: string;
-  userId: string;
-  inputData: Record<string, unknown>;
-}) {
-  // 2. Build the user message by injecting input_data into prompt template
-  let userMessage = prompt.template;
-
-  // Replace {{key}} placeholders with input_data values
-  if (inputData && typeof inputData === 'object') {
-    for (const [key, value] of Object.entries(inputData)) {
-      userMessage = userMessage.replace(
-        new RegExp(`\\{\\{${key}\\}\\}`, 'g'),
-        String(value ?? '')
-      );
-    }
-  }
-
-  // 3. Call Claude API
-  const messages: Anthropic.MessageParam[] = [
-    { role: 'user', content: userMessage }
-  ];
-
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 4096,
-    system:
-      prompt.system_prompt ||
-      'You are a marketing expert specializing in local Hispanic home services businesses. Write in clear, professional Spanish unless instructed otherwise.',
-    messages
-  });
-
-  const generatedContent =
-    response.content[0].type === 'text' ? response.content[0].text : '';
-
-  // 4. Save to generated_outputs (universal table for all generated content)
-  const { data: savedOutput, error: saveError } = await supabase
-    .from('generated_outputs')
-    .insert({
-      tenant_id: tenantId,
-      client_id: clientId,
-      prompt_version_id: prompt.id,
-      output_type: step,
-      content: generatedContent,
-      status: 'draft',
-      generated_by: userId,
-      input_data: inputData,
-      tokens_used: response.usage.input_tokens + response.usage.output_tokens
-    })
-    .select()
-    .single();
-
-  if (saveError) {
-    console.error('Error saving generated output:', saveError);
-    // Still return the content even if save failed
-    return NextResponse.json({
-      content: generatedContent,
-      saved: false,
-      error: saveError.message
-    });
-  }
-
-  // 5. Also update the specific table if applicable
-  const stepConfig = STEP_CONFIG[step];
-  if (stepConfig && stepConfig.table !== 'generated_outputs') {
-    // For gbp_description: update the existing profile
-    if (step === 'gbp_description') {
-      await supabase
-        .from('gbp_profiles')
-        .update({ description: generatedContent })
-        .eq('client_id', clientId)
-        .eq('tenant_id', tenantId);
-    }
-    // For gbp_post: the post is already created by the GBP module; just update content
-    else if (step === 'gbp_post' && inputData?.post_id) {
-      await supabase
-        .from('gbp_posts')
-        .update({ content: generatedContent, status: 'draft' })
-        .eq('id', inputData.post_id)
-        .eq('tenant_id', tenantId);
-    }
-  }
-
-  // 6. Log activity
-  await supabase.from('activity_log').insert({
-    tenant_id: tenantId,
-    user_id: userId,
-    client_id: clientId,
-    action: `${step}_generated`,
-    entity_type: 'generated_output',
-    entity_id: savedOutput.id,
-    metadata: {
-      step,
-      tokens_used: response.usage.input_tokens + response.usage.output_tokens,
-      prompt_version_id: prompt.id
-    }
-  });
-
-  return NextResponse.json({
-    content: generatedContent,
-    output_id: savedOutput.id,
-    saved: true,
-    tokens_used: response.usage.input_tokens + response.usage.output_tokens
-  });
 }
