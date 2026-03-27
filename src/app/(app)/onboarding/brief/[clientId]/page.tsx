@@ -151,7 +151,7 @@ export default function BriefPage() {
     if (!tenantId || !user) return;
     setGeneratingBrief(true);
     try {
-      const result = await generateContent({ step: 'brief', clientId }) as {
+      const result = await generateContent({ step: 'brief', clientId }) as unknown as {
         content?: string;
         tokens_used?: number;
         record_id?: string;
@@ -235,7 +235,7 @@ export default function BriefPage() {
     if (!tenantId || !user) return;
     setGeneratingPersona(true);
     try {
-      const result = await generateContent({ step: 'buyer_persona', clientId }) as {
+      const result = await generateContent({ step: 'buyer_persona', clientId }) as unknown as {
         content?: string;
         tokens_used?: number;
         record_id?: string;
@@ -317,7 +317,7 @@ export default function BriefPage() {
     if (!tenantId || !user) return;
     setGeneratingOfv(true);
     try {
-      const result = await generateContent({ step: 'ofv', clientId }) as {
+      const result = await generateContent({ step: 'ofv', clientId }) as unknown as {
         content?: string;
         tokens_used?: number;
         record_id?: string;
