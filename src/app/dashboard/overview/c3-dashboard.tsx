@@ -17,6 +17,13 @@ type Metrics = {
   clientsByStatus: Record<string, number>;
 };
 
+type ApprovedPreview = {
+  id: string;
+  client_id: string;
+  approved_at: string | null;
+  clients: { business_name: string } | null;
+};
+
 type ActivityEntry = {
   id: string;
   action: string;
@@ -62,6 +69,7 @@ export default function C3Dashboard() {
     clientsByStatus: {}
   });
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
+  const [approvedPreviews, setApprovedPreviews] = useState<ApprovedPreview[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -117,6 +125,17 @@ export default function C3Dashboard() {
     });
 
     setActivityLog(activity || []);
+
+    // Recently approved previews (last 7 days)
+    const { data: approvedPreviewsData } = await supabase
+      .from('previews')
+      .select('id, client_id, approved_at, clients(business_name)')
+      .eq('approved', true)
+      .gte('approved_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
+      .order('approved_at', { ascending: false })
+      .limit(5);
+
+    setApprovedPreviews((approvedPreviewsData as unknown as ApprovedPreview[]) || []);
     setLoading(false);
   };
 
@@ -194,6 +213,31 @@ export default function C3Dashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Approved Previews Alert */}
+        {!loading && approvedPreviews.length > 0 && (
+          <Card className='border-green-300 bg-green-50'>
+            <CardHeader className='pb-2'>
+              <CardTitle className='text-base text-green-800'>
+                ✅ {approvedPreviews.length} preview{approvedPreviews.length > 1 ? 's' : ''} aprobado{approvedPreviews.length > 1 ? 's' : ''} esta semana
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className='space-y-1'>
+                {approvedPreviews.map((p) => (
+                  <li key={p.id} className='flex items-center justify-between text-sm'>
+                    <span className='font-medium text-green-900'>{p.clients?.business_name || 'Cliente'}</span>
+                    <span className='text-xs text-green-600'>
+                      {p.approved_at
+                        ? new Date(p.approved_at).toLocaleString('es-MX', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                        : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
 
         <div className='grid gap-4 lg:grid-cols-2'>
           {/* Clients by Status */}

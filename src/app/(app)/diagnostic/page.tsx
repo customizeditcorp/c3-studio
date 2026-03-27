@@ -40,7 +40,7 @@ const PRESENCIA_DIGITAL = {
   tier: 'presencia_digital',
   price: 3300,
   priceInstallment: 1100,     // 3 x $1,100
-  priceDiscount: 3135,         // $3,300 - 5%
+  priceDiscount: 2970,         // $3,300 - 10%
   planName: 'Presencia Digital — 90 días',
   billing: '3 pagos de $1,100 · o pago único $3,135',
   features: [
@@ -52,7 +52,7 @@ const PRESENCIA_DIGITAL = {
     'Opción de continuar con plan mensual al terminar'
   ],
   scripts: [
-    '"¿Prefieres arrancar con los 3 pagos de $1,100 o aprovechar el 5% de descuento con pago único de $3,135?"',
+    '"¿Prefieres arrancar con los 3 pagos de $1,100 o aprovechar el 10% de descuento con pago único de $2,970?"',
     '"Son menos de $37 al día por 90 días. Y todo queda tuyo para siempre."',
     '"Si consigues un solo trabajo extra al mes gracias a Google, recuperas la inversión en semanas."'
   ]
@@ -947,12 +947,12 @@ export default function DiagnosticPage() {
                     {/* Option B — discount */}
                     <div className='rounded-xl border border-muted bg-muted/30 p-4 text-center flex flex-col gap-1 relative'>
                       <span className='absolute -top-2 left-1/2 -translate-x-1/2 bg-green-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full'>
-                        5% descuento
+                        10% descuento
                       </span>
                       <p className='text-xs font-semibold text-muted-foreground uppercase tracking-wide'>Opción B</p>
                       <p className='text-2xl font-bold'>$3,135</p>
                       <p className='text-xs text-muted-foreground'>pago único</p>
-                      <p className='text-sm text-green-600 font-medium mt-1'>Ahorras $165</p>
+                      <p className='text-sm text-green-600 font-medium mt-1'>Ahorras $330</p>
                     </div>
                   </div>
                 ) : (

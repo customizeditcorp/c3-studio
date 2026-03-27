@@ -98,8 +98,17 @@ export default function PreviewPublicView({
         .update({ approved: true, feedback, approved_at: new Date().toISOString() })
         .eq('token', token);
 
+      await supabase
+        .from('clients')
+        .update({ status: 'onboarding' })
+        .eq('id', preview.client_id);
+
+      await supabase
+        .from('activity_log')
+        .insert({ client_id: preview.client_id, action: 'preview_approved', entity_type: 'preview', entity_id: preview.id });
+
       setSubmitted(true);
-      toast.success('¡Preview aprobado! Gracias.');
+      toast.success('¡Aprobado! Te contactamos en menos de 24 horas. 🎉');
     } catch (err) {
       toast.error('Error al aprobar');
     } finally {
@@ -357,6 +366,124 @@ export default function PreviewPublicView({
           </section>
         )}
 
+        {/* GBP Knowledge Panel Mockup */}
+        <section>
+          <h2 className="text-lg font-bold mb-3">📍 Así aparecerás en Google</h2>
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-lg overflow-hidden font-[system-ui,-apple-system,'Segoe_UI',sans-serif] max-w-sm mx-auto">
+            {/* Header with business info */}
+            <div className="p-4 pb-2">
+              <h3 className="text-xl font-normal text-[#202124]">{businessName}</h3>
+              <p className="text-sm text-[#70757a] mt-0.5 capitalize">{client.industry?.replace(/_/g,' ')}</p>
+              <div className="flex items-center gap-1 mt-1">
+                <span className="text-[#fbbc04] text-sm">★★★★★</span>
+                <span className="text-sm font-medium text-[#202124]">5.0</span>
+                <span className="text-sm text-[#4285f4] ml-1">Nuevo negocio</span>
+              </div>
+            </div>
+            {/* Action buttons (Google style) */}
+            <div className="flex border-t border-gray-100 divide-x divide-gray-100">
+              {[
+                { icon: '📞', label: 'Llamar' },
+                { icon: '🗺️', label: 'Ruta' },
+                { icon: '🌐', label: 'Sitio web' },
+              ].map((btn) => (
+                <button key={btn.label} className="flex-1 flex flex-col items-center py-3 gap-1 text-[#4285f4] hover:bg-gray-50 transition-colors">
+                  <span className="text-lg">{btn.icon}</span>
+                  <span className="text-xs">{btn.label}</span>
+                </button>
+              ))}
+            </div>
+            {/* Info rows */}
+            <div className="divide-y divide-gray-100 border-t border-gray-100">
+              <div className="flex items-center gap-3 px-4 py-3">
+                <span className="text-gray-400 text-lg">📍</span>
+                <span className="text-sm text-[#202124]">Santa Maria, California</span>
+              </div>
+              <div className="flex items-center gap-3 px-4 py-3">
+                <span className="text-gray-400 text-lg">🕐</span>
+                <div>
+                  <span className="text-sm text-[#34a853] font-medium">Abierto ahora</span>
+                  <span className="text-sm text-[#202124] ml-2">· Cierra a las 6pm</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 px-4 py-3">
+                <span className="text-gray-400 text-lg">📞</span>
+                <span className="text-sm text-[#202124]">{client.phone || '(805) 555-0100'}</span>
+              </div>
+            </div>
+            {/* Photos section - use real photos if available */}
+            {photos && photos.length > 0 ? (
+              <div className="flex gap-1 p-2 border-t border-gray-100 overflow-hidden">
+                {photos.slice(0, 3).map((photo, i) => (
+                  <div key={i} className="flex-1 h-20 rounded overflow-hidden bg-gray-100">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={photo.public_url} alt={photo.alt_text_auto || businessName} className="w-full h-full object-cover" />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex gap-1 p-2 border-t border-gray-100">
+                {['bg-blue-100', 'bg-orange-100', 'bg-green-100'].map((bg, i) => (
+                  <div key={i} className={`flex-1 h-20 rounded ${bg} flex items-center justify-center text-2xl`}>
+                    {i === 0 ? '🏠' : i === 1 ? '🔧' : '⭐'}
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-center text-[10px] text-gray-400 py-2 border-t border-gray-100">* Mockup ilustrativo — así lucirá tu perfil en Google</p>
+          </div>
+        </section>
+
+        {/* Mini-site Mockup */}
+        <section>
+          <h2 className="text-lg font-bold mb-3">🌐 Así se vería tu sitio web</h2>
+          <div className="rounded-2xl border border-gray-200 overflow-hidden shadow-lg max-w-sm mx-auto">
+            {/* Browser chrome */}
+            <div className="bg-[#f1f3f4] px-3 py-2 flex items-center gap-2">
+              <div className="flex gap-1.5">
+                <div className="w-3 h-3 rounded-full bg-[#ff5f57]" />
+                <div className="w-3 h-3 rounded-full bg-[#febc2e]" />
+                <div className="w-3 h-3 rounded-full bg-[#28c840]" />
+              </div>
+              <div className="flex-1 bg-white rounded-full px-3 py-1 text-xs text-gray-400 truncate">
+                www.{businessName.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'')}.com
+              </div>
+            </div>
+            {/* Hero section */}
+            <div className="bg-[#1a1a2e] text-white px-5 py-8 relative overflow-hidden">
+              <div className="absolute inset-0 opacity-10 bg-gradient-to-br from-[#FF5733] to-transparent" />
+              <div className="relative">
+                <p className="text-xs text-[#FF5733] font-semibold uppercase tracking-widest mb-2">
+                  {client.industry?.replace(/_/g,' ').toUpperCase() || 'HOME SERVICES'}
+                </p>
+                <h3 className="text-xl font-bold mb-2">{businessName}</h3>
+                <p className="text-gray-300 text-sm mb-4">Servicio profesional · Zona Central Coast, CA</p>
+                <button className="bg-[#FF5733] text-white text-sm font-semibold px-4 py-2 rounded-lg">
+                  Cotización Gratis →
+                </button>
+              </div>
+            </div>
+            {/* Services grid */}
+            <div className="bg-white px-4 py-4">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Nuestros Servicios</p>
+              <div className="grid grid-cols-2 gap-2">
+                {['Diagnóstico Gratis', 'Trabajo Garantizado', 'Respuesta Rápida', 'Precios Justos'].map((s) => (
+                  <div key={s} className="flex items-center gap-2 text-sm border-l-2 border-[#FF5733] pl-2 py-1">
+                    <span className="text-xs">{s}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* Trust bar */}
+            <div className="bg-gray-50 px-4 py-3 flex justify-around border-t border-gray-100">
+              {['Licenciado ✓', 'Asegurado ✓', 'Local ✓'].map((t) => (
+                <span key={t} className="text-xs text-gray-500 font-medium">{t}</span>
+              ))}
+            </div>
+            <p className="text-center text-[10px] text-gray-400 py-2 border-t border-gray-100">* Mockup ilustrativo — diseño final personalizado</p>
+          </div>
+        </section>
+
         {/* Plan recommendation from diagnostic */}
         {preview.metadata?.plan_name && (
           <section>
@@ -375,11 +502,11 @@ export default function PreviewPublicView({
                       <p className='text-sm font-medium mt-1'>Total $3,300</p>
                     </div>
                     <div className='rounded-xl border border-gray-200 bg-gray-50 p-4 text-center relative'>
-                      <span className='absolute -top-2 left-1/2 -translate-x-1/2 bg-green-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full'>5% descuento</span>
+                      <span className='absolute -top-2 left-1/2 -translate-x-1/2 bg-green-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full'>10% descuento</span>
                       <p className='text-xs font-semibold text-gray-500 uppercase'>Opción B</p>
                       <p className='text-2xl font-bold'>${preview.metadata.price_discount?.toLocaleString()}</p>
                       <p className='text-xs text-gray-500'>pago único</p>
-                      <p className='text-sm text-green-600 font-medium mt-1'>Ahorras $165</p>
+                      <p className='text-sm text-green-600 font-medium mt-1'>Ahorras $330</p>
                     </div>
                   </div>
                 ) : (
@@ -443,7 +570,7 @@ export default function PreviewPublicView({
               </p>
               <p className='font-medium text-green-800'>
                 {preview.approved
-                  ? '¡Aprobado! Gracias por tu confirmación.'
+                  ? '¡Aprobado! Te contactamos en menos de 24 horas. 🎉'
                   : '¡Comentarios recibidos! Nos pondremos en contacto pronto.'}
               </p>
             </CardContent>
