@@ -49,28 +49,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       setProfile(profileData);
       setProfileMissing(false);
     } else {
-      // No profile row — try to get tenant from first tenant in DB as fallback
-      const { data: tenant } = await supabase
-        .from('tenants')
-        .select('id')
-        .limit(1)
-        .maybeSingle();
-
-      if (tenant) {
-        // Create a minimal profile with the tenant_id so the app works
-        setProfile({
-          id: userId,
-          email: '',
-          full_name: null,
-          role: 'operator',
-          tenant_id: tenant.id,
-          avatar_url: null
-        });
-        setProfileMissing(false);
-      } else {
-        setProfileMissing(true);
-        console.warn('No profile or tenant found for user', userId, error);
-      }
+      setProfile(null);
+      setProfileMissing(true);
+      if (error) console.warn('users lookup failed for', userId, error);
     }
   };
 
@@ -102,6 +83,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
+    setProfileMissing(false);
   };
 
   return (

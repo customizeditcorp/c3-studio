@@ -1,3 +1,4 @@
+import ProfileRequiredGate from '@/components/auth/profile-required-gate';
 import KBar from '@/components/kbar';
 import AppSidebar from '@/components/layout/app-sidebar';
 import Header from '@/components/layout/header';
@@ -30,7 +31,7 @@ export default async function AppLayout({
           <AppSidebar />
           <SidebarInset>
             <Header />
-            {children}
+            <ProfileRequiredGate>{children}</ProfileRequiredGate>
           </SidebarInset>
           <InfoSidebar side='right' />
         </InfobarProvider>

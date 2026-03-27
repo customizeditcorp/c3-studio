@@ -19,6 +19,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useUser } from '@/contexts/UserContext';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { logActivity } from '@/lib/activity';
+import { textFromGenerateContentResult } from '@/lib/generate-content-text';
 import { generateContent } from '@/lib/edge-functions';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
@@ -253,9 +254,9 @@ export default function GBPPage() {
       const result = await generateContent({
         step: 'gbp_description',
         clientId
-      }) as unknown as { content?: string; generated_text?: string };
+      });
 
-      const generatedText = result.content || result.generated_text || '';
+      const generatedText = textFromGenerateContentResult(result);
       if (generatedText) {
         setDescription(generatedText.slice(0, 750));
         toast.success('Descripción generada. Edítala si lo deseas y guarda.');
@@ -278,9 +279,9 @@ export default function GBPPage() {
         step: 'gbp_posts',
         clientId,
         inputData: { post_topic: postTopic || undefined }
-      }) as unknown as { content?: string; generated_text?: string };
+      });
 
-      const generatedText = result.content || result.generated_text || '';
+      const generatedText = textFromGenerateContentResult(result);
       if (generatedText) {
         setNewPostContent(generatedText);
         toast.success('Post generado. Edítalo si lo deseas.');

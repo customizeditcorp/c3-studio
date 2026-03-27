@@ -4,7 +4,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { createClient } from '@/lib/supabase/client';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -68,7 +67,6 @@ export default function PreviewPublicView({
   generatedDescription,
   latestOffer
 }: Props) {
-  const supabase = createClient();
   const [feedback, setFeedback] = useState('');
   const [submitted, setSubmitted] = useState(preview.approved);
   const [submitting, setSubmitting] = useState(false);
@@ -97,19 +95,16 @@ export default function PreviewPublicView({
   const handleApprove = async () => {
     setSubmitting(true);
     try {
-      await supabase
-        .from('previews')
-        .update({ approved: true, feedback, approved_at: new Date().toISOString() })
-        .eq('token', token);
-
-      await supabase
-        .from('clients')
-        .update({ status: 'onboarding' })
-        .eq('id', preview.client_id);
-
-      await supabase
-        .from('activity_log')
-        .insert({ client_id: preview.client_id, action: 'preview_approved', entity_type: 'preview', entity_id: preview.id });
+      const res = await fetch('/api/preview-approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, feedback })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(typeof data.error === 'string' ? data.error : 'Error al aprobar');
+        return;
+      }
 
       setSubmitted(true);
       toast.success('¡Aprobado! Te contactamos en menos de 24 horas. 🎉');
@@ -127,14 +122,16 @@ export default function PreviewPublicView({
     }
     setSubmitting(true);
     try {
-      await supabase
-        .from('previews')
-        .update({
-          approved: false,
-          feedback,
-          feedback_at: new Date().toISOString()
-        })
-        .eq('token', token);
+      const res = await fetch('/api/preview-feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, feedback })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(typeof data.error === 'string' ? data.error : 'Error al enviar comentarios');
+        return;
+      }
 
       toast.success('Comentarios enviados. Nos pondremos en contacto.');
       setSubmitted(true);

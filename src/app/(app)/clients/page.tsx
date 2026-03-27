@@ -76,18 +76,19 @@ export default function ClientsPage() {
   const [showNewClientDialog, setShowNewClientDialog] = useState(false);
 
   const fetchClients = async () => {
+    if (!tenantId) {
+      setClients([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     let query = supabase
       .from('clients')
       .select(
         'id, business_name, industry, contact_first_name, phone, status, tier, created_at'
       )
+      .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false });
-
-    // Filter by tenant if available (RLS handles security regardless)
-    if (tenantId) {
-      query = query.eq('tenant_id', tenantId);
-    }
 
     if (statusFilter !== 'all') {
       query = query.eq('status', statusFilter);
@@ -100,10 +101,8 @@ export default function ClientsPage() {
   };
 
   useEffect(() => {
-    // Run once auth loading is done, with or without tenantId
-    if (!userLoading) {
-      fetchClients();
-    }
+    if (userLoading) return;
+    void fetchClients();
   }, [tenantId, userLoading, statusFilter]);
 
   const filteredClients = clients.filter(
@@ -125,6 +124,12 @@ export default function ClientsPage() {
       }
     >
       <div className='flex flex-1 flex-col gap-4 p-4 md:px-6'>
+        {!userLoading && !tenantId ? (
+          <p className='text-destructive text-sm'>
+            No hay organización asociada a tu perfil. No se listan clientes hasta que un administrador
+            complete tu usuario en la base de datos.
+          </p>
+        ) : null}
         {/* Filters */}
         <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
           <Input

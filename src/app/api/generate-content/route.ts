@@ -3,12 +3,18 @@ import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!
-});
+const CLAUDE_MODEL =
+  process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-20250514';
 
 export async function POST(request: NextRequest) {
   try {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return NextResponse.json(
+        { error: 'ANTHROPIC_API_KEY is not configured' },
+        { status: 503 }
+      );
+    }
+
     const cookieStore = await cookies();
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -35,24 +41,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'step and client_id are required' }, { status: 400 });
     }
 
-    // 1. Get active prompt for this step
-    const { data: prompt, error: promptError } = await supabase
-      .from('prompt_versions')
-      .select('id, system_prompt, methodology, validation_rules')
-      .eq('step', step)
-      .eq('active', true)
-      .order('version', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (promptError || !prompt) {
-      return NextResponse.json(
-        { error: `No active prompt found for step: ${step}` },
-        { status: 404 }
-      );
-    }
-
-    // 2. Get client data
     const { data: client, error: clientError } = await supabase
       .from('clients')
       .select('*')
@@ -63,7 +51,82 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Client not found: ${client_id}` }, { status: 404 });
     }
 
-    // 3. Build context chain: brief → persona → OFV → outputs
+    const clientTenantId = client.tenant_id as string;
+
+    const { data: operator, error: opErr } = await supabase
+      .from('users')
+      .select('tenant_id')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (opErr || !operator?.tenant_id) {
+      return NextResponse.json(
+        { error: 'Operator profile missing or has no tenant_id' },
+        { status: 403 }
+      );
+    }
+
+    if (operator.tenant_id !== clientTenantId) {
+      return NextResponse.json(
+        { error: 'Forbidden: client belongs to another organization' },
+        { status: 403 }
+      );
+    }
+
+    const promptSelect =
+      'id, system_prompt, methodology, validation_rules';
+
+    let prompt: {
+      id: string;
+      system_prompt: string;
+      methodology: string | null;
+      validation_rules: unknown;
+    } | null = null;
+
+    const { data: tenantPrompt, error: tpErr } = await supabase
+      .from('prompt_versions')
+      .select(promptSelect)
+      .eq('step', step)
+      .eq('active', true)
+      .eq('tenant_id', clientTenantId)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (tpErr) {
+      return NextResponse.json(
+        { error: `Prompt lookup failed: ${tpErr.message}` },
+        { status: 500 }
+      );
+    }
+    if (tenantPrompt) {
+      prompt = tenantPrompt;
+    } else {
+      const { data: globalPrompt, error: gpErr } = await supabase
+        .from('prompt_versions')
+        .select(promptSelect)
+        .eq('step', step)
+        .eq('active', true)
+        .is('tenant_id', null)
+        .order('version', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (gpErr) {
+        return NextResponse.json(
+          { error: `Prompt lookup failed: ${gpErr.message}` },
+          { status: 500 }
+        );
+      }
+      prompt = globalPrompt;
+    }
+
+    if (!prompt) {
+      return NextResponse.json(
+        { error: `No active prompt found for step: ${step}` },
+        { status: 404 }
+      );
+    }
+
     let contextChain = '';
     const needsBrief = ['buyer_persona', 'ofv', 'gbp_description', 'gbp_posts',
       'campaign_copy', 'website_home', 'website_service', 'website_location',
@@ -109,7 +172,6 @@ export async function POST(request: NextRequest) {
       if (offer) contextChain += `\n\n## OFERTA DE VALOR (APROBADA)\nBig Promise: ${offer.big_promise}\nVehículo: ${offer.vehicle_name} — ${offer.vehicle_description}\nQuick Win: ${offer.quick_win}\nGarantía: ${offer.guarantee}`;
     }
 
-    // 4. Build user message
     const userMessage = `
 ## DATOS DEL CLIENTE
 Negocio: ${client.business_name}
@@ -125,9 +187,12 @@ ${input_data ? JSON.stringify(input_data, null, 2) : 'Sin datos adicionales.'}
 
 Genera el output en formato JSON + raw_text (markdown). Responde SOLO con JSON válido, sin backticks ni texto adicional.`;
 
-    // 5. Call Claude API
+    const anthropic = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY
+    });
+
     const claudeResponse = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: CLAUDE_MODEL,
       max_tokens: 4096,
       system: prompt.system_prompt,
       messages: [{ role: 'user', content: userMessage }]
@@ -138,7 +203,6 @@ Genera el output en formato JSON + raw_text (markdown). Responde SOLO con JSON v
       .map((c) => (c as { type: 'text'; text: string }).text)
       .join('');
 
-    // 6. Parse response
     let parsedContent: Record<string, unknown>;
     let rawText = responseText;
     try {
@@ -150,19 +214,16 @@ Genera el output en formato JSON + raw_text (markdown). Responde SOLO con JSON v
       rawText = responseText;
     }
 
-    // 7. Save to appropriate table
     let savedRecord: Record<string, unknown> | null = null;
+    const tableMap: Record<string, string> = {
+      brief: 'briefs',
+      buyer_persona: 'buyer_personas',
+      ofv: 'offers'
+    };
+    const outputSteps = ['gbp_description', 'gbp_posts', 'campaign_copy',
+      'website_home', 'website_service', 'website_location', 'nurturing', 'social_content'];
 
     if (save) {
-      const tableMap: Record<string, string> = {
-        brief: 'briefs',
-        buyer_persona: 'buyer_personas',
-        ofv: 'offers'
-      };
-
-      const outputSteps = ['gbp_description', 'gbp_posts', 'campaign_copy',
-        'website_home', 'website_service', 'website_location', 'nurturing', 'social_content'];
-
       if (tableMap[step]) {
         const table = tableMap[step];
         const insertData: Record<string, unknown> = {
@@ -198,8 +259,13 @@ Genera el output en formato JSON + raw_text (markdown). Responde SOLO con JSON v
         }
 
         const { data, error } = await supabase.from(table).insert(insertData).select().single();
-        if (!error) savedRecord = data;
-        else console.error(`Error saving to ${table}:`, error);
+        if (error) {
+          return NextResponse.json(
+            { success: false, error: error.message, code: error.code },
+            { status: 422 }
+          );
+        }
+        savedRecord = data;
 
       } else if (outputSteps.includes(step)) {
         const { data: latestOffer } = await supabase
@@ -215,21 +281,33 @@ Genera el output en formato JSON + raw_text (markdown). Responde SOLO con JSON v
           status: 'draft',
           version: 1
         }).select().single();
-        if (!error) savedRecord = data;
-        else console.error('Error saving to generated_outputs:', error);
+        if (error) {
+          return NextResponse.json(
+            { success: false, error: error.message, code: error.code },
+            { status: 422 }
+          );
+        }
+        savedRecord = data;
       }
 
-      // Log activity
-      const clientTenantId = (client as { tenant_id: string }).tenant_id;
-      await supabase.from('activity_log').insert({
-        tenant_id: clientTenantId,
-        client_id,
-        user_id: user.id,
-        action: `${step}_generated`,
-        entity_type: step,
-        entity_id: savedRecord?.id != null ? String(savedRecord.id) : client_id,
-        metadata: { prompt_version_id: prompt.id, methodology: prompt.methodology, model: 'claude-sonnet-4-6' }
-      });
+      if (save) {
+        const persistedStep = Boolean(tableMap[step]) || outputSteps.includes(step);
+        if (!persistedStep || savedRecord) {
+          await supabase.from('activity_log').insert({
+            tenant_id: clientTenantId,
+            client_id,
+            user_id: user.id,
+            action: `${step}_generated`,
+            entity_type: step,
+            entity_id: savedRecord?.id != null ? String(savedRecord.id) : client_id,
+            metadata: {
+              prompt_version_id: prompt.id,
+              methodology: prompt.methodology,
+              model: CLAUDE_MODEL
+            }
+          });
+        }
+      }
     }
 
     return NextResponse.json({

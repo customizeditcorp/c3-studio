@@ -69,6 +69,8 @@ function calculateTier(
   billing: string;
   features: string[];
   scripts: string[];
+  priceInstallment?: number;
+  priceDiscount?: number;
 } {
   // Rule #1: No digital presence → always Presencia Digital first
   if (needsPresenciaDigital(googlePresence, digitalHealth)) {
@@ -252,7 +254,10 @@ export default function DiagnosticPage() {
         : null;
 
   const handleSaveDiagnostic = async () => {
-    if (!tenantId) return;
+    if (!tenantId) {
+      toast.error('No hay organización asociada. Completa tu perfil de usuario.');
+      return;
+    }
     setSaving(true);
 
     try {
@@ -395,8 +400,8 @@ export default function DiagnosticPage() {
         tier: tierResult?.tier,
         plan_name: tierResult?.planName,
         price: tierResult?.price,
-        price_installment: (tierResult as { priceInstallment?: number })?.priceInstallment,
-        price_discount: (tierResult as { priceDiscount?: number })?.priceDiscount,
+        price_installment: tierResult?.priceInstallment,
+        price_discount: tierResult?.priceDiscount,
         billing: tierResult?.billing,
         features: tierResult?.features,
         scripts: tierResult?.scripts,

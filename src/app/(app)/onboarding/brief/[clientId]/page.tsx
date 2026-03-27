@@ -9,6 +9,7 @@ import PageContainer from '@/components/layout/page-container';
 import { useUser } from '@/contexts/UserContext';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { logActivity } from '@/lib/activity';
+import { textFromGenerateContentResult } from '@/lib/generate-content-text';
 import { generateContent } from '@/lib/edge-functions';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
@@ -161,11 +162,9 @@ export default function BriefPage() {
     }
     setGeneratingBrief(true);
     try {
-      const result = await generateContent({ step: 'brief', clientId }) as unknown as {
-        content?: string;
-        tokens_used?: number;
-        record_id?: string;
-      };
+      const result = await generateContent({ step: 'brief', clientId });
+      const fallbackText = textFromGenerateContentResult(result);
+      const fallbackId = result.saved?.id ? String(result.saved.id) : 'temp';
 
       // Re-fetch latest brief from DB after generation
       const { data: newBrief } = await supabase
@@ -178,14 +177,13 @@ export default function BriefPage() {
 
       if (newBrief) {
         setBrief(newBrief);
-      } else if (result.content) {
-        // Fallback: create a local record
+      } else if (fallbackText) {
         setBrief({
-          id: result.record_id || 'temp',
-          content: result.content,
+          id: fallbackId,
+          content: fallbackText,
           status: 'draft',
           created_at: new Date().toISOString(),
-          tokens_used: result.tokens_used
+          tokens_used: undefined
         });
       }
 
@@ -254,11 +252,9 @@ export default function BriefPage() {
     }
     setGeneratingPersona(true);
     try {
-      const result = await generateContent({ step: 'buyer_persona', clientId }) as unknown as {
-        content?: string;
-        tokens_used?: number;
-        record_id?: string;
-      };
+      const result = await generateContent({ step: 'buyer_persona', clientId });
+      const fallbackText = textFromGenerateContentResult(result);
+      const fallbackId = result.saved?.id ? String(result.saved.id) : 'temp';
 
       const { data: newPersona } = await supabase
         .from('buyer_personas')
@@ -270,13 +266,13 @@ export default function BriefPage() {
 
       if (newPersona) {
         setPersona(newPersona);
-      } else if (result.content) {
+      } else if (fallbackText) {
         setPersona({
-          id: result.record_id || 'temp',
-          content: result.content,
+          id: fallbackId,
+          content: fallbackText,
           status: 'draft',
           created_at: new Date().toISOString(),
-          tokens_used: result.tokens_used
+          tokens_used: undefined
         });
       }
 
@@ -345,11 +341,13 @@ export default function BriefPage() {
     }
     setGeneratingOfv(true);
     try {
-      const result = await generateContent({ step: 'ofv', clientId }) as unknown as {
-        content?: string;
-        tokens_used?: number;
-        record_id?: string;
-      };
+      const result = await generateContent({ step: 'ofv', clientId });
+      const fallbackText = textFromGenerateContentResult(result);
+      const fallbackId = result.saved?.id ? String(result.saved.id) : 'temp';
+      const contentObj =
+        result.content && typeof result.content === 'object'
+          ? result.content
+          : null;
 
       const { data: newOfv } = await supabase
         .from('offers')
@@ -363,23 +361,30 @@ export default function BriefPage() {
         setOfv(newOfv);
         if (newOfv.content) {
           try {
-            setOfvData(JSON.parse(newOfv.content));
+            const c = newOfv.content;
+            setOfvData(typeof c === 'string' ? JSON.parse(c) : (c as OFVData));
           } catch {
-            setOfvData({ raw: newOfv.content });
+            setOfvData({ raw: String(newOfv.content) });
           }
         }
-      } else if (result.content) {
+      } else if (fallbackText || contentObj) {
+        const contentStr =
+          contentObj ? JSON.stringify(contentObj) : fallbackText;
         setOfv({
-          id: result.record_id || 'temp',
-          content: result.content,
+          id: fallbackId,
+          content: contentStr,
           status: 'draft',
           created_at: new Date().toISOString(),
-          tokens_used: result.tokens_used
+          tokens_used: undefined
         });
-        try {
-          setOfvData(JSON.parse(result.content));
-        } catch {
-          setOfvData({ raw: result.content });
+        if (contentObj) {
+          setOfvData(contentObj as OFVData);
+        } else {
+          try {
+            setOfvData(JSON.parse(fallbackText));
+          } catch {
+            setOfvData({ raw: fallbackText });
+          }
         }
       }
 

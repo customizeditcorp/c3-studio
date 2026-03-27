@@ -1,4 +1,5 @@
 'use client';
+
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,10 +22,23 @@ const STATUS_LABEL: Record<string, string> = {
   diagnosed: 'Diagnosticado',
   onboarding: 'En Onboarding',
   negotiating: 'Negociando',
-  active: 'Activo'
+  active: 'Activo',
+  lead: 'Lead'
 };
 
-export default function OnboardingBriefListPage() {
+interface OnboardingClientPickerProps {
+  pageTitle: string;
+  pageDescription: string;
+  routePrefix: string;
+  emptyHint?: string;
+}
+
+export default function OnboardingClientPicker({
+  pageTitle,
+  pageDescription,
+  routePrefix,
+  emptyHint = 'No hay clientes aún.'
+}: OnboardingClientPickerProps) {
   const { tenantId, loading: userLoading } = useUser();
   const supabase = createClient();
   const router = useRouter();
@@ -45,62 +59,59 @@ export default function OnboardingBriefListPage() {
         .from('clients')
         .select('id, business_name, industry, status, tier, contact_first_name')
         .eq('tenant_id', tenantId)
-        .in('status', ['diagnosed', 'onboarding', 'negotiating', 'active'])
+        .in('status', ['diagnosed', 'onboarding', 'negotiating', 'active', 'lead'])
         .order('created_at', { ascending: false });
       setClients(data || []);
       setLoading(false);
     };
+
     void fetchClients();
   }, [tenantId, userLoading]);
 
-  return (
-    <PageContainer>
-      <div className='space-y-6'>
-        <div>
-          <h1 className='text-2xl font-bold'>Brief & Persona</h1>
-          <p className='text-muted-foreground text-sm mt-1'>
-            Selecciona un cliente para generar su Brief, Buyer Persona y Oferta de Valor.
-          </p>
-        </div>
+  if (userLoading || loading) {
+    return (
+      <PageContainer pageTitle={pageTitle} pageDescription={pageDescription}>
+        <p className='text-muted-foreground p-4'>Cargando clientes...</p>
+      </PageContainer>
+    );
+  }
 
-        {userLoading || loading ? (
-          <p className='text-muted-foreground'>Cargando clientes...</p>
-        ) : !tenantId ? (
+  if (!tenantId) {
+    return (
+      <PageContainer pageTitle={pageTitle} pageDescription={pageDescription}>
+        <p className='text-muted-foreground p-4'>
+          No se pudo resolver tu organización. Completa tu perfil de usuario o vuelve a iniciar sesión.
+        </p>
+      </PageContainer>
+    );
+  }
+
+  return (
+    <PageContainer pageTitle={pageTitle} pageDescription={pageDescription}>
+      <div className='space-y-6 p-4 md:px-6'>
+        {clients.length === 0 ? (
           <Card>
             <CardContent className='py-10 text-center text-muted-foreground'>
-              No hay organización asociada a tu perfil. Contacta a un administrador.
-            </CardContent>
-          </Card>
-        ) : clients.length === 0 ? (
-          <Card>
-            <CardContent className='py-10 text-center text-muted-foreground'>
-              No hay clientes en onboarding aún.{' '}
+              {emptyHint}{' '}
               <Button variant='link' onClick={() => router.push('/diagnostic')}>
                 Crear un diagnóstico
               </Button>
             </CardContent>
           </Card>
         ) : (
-          <div className='grid gap-3'>
+          <div className='grid gap-3 max-w-2xl'>
             {clients.map((client) => (
               <Card
                 key={client.id}
                 className='cursor-pointer hover:border-primary transition-colors'
-                onClick={() => router.push(`/onboarding/brief/${client.id}`)}
+                onClick={() => router.push(`${routePrefix}/${client.id}`)}
               >
                 <CardHeader className='pb-2'>
                   <div className='flex items-center justify-between'>
                     <CardTitle className='text-base'>{client.business_name}</CardTitle>
-                    <div className='flex gap-2'>
-                      <Badge variant='outline'>
-                        {STATUS_LABEL[client.status] || client.status}
-                      </Badge>
-                      {client.tier && (
-                        <Badge className='bg-primary/10 text-primary border-primary/20'>
-                          {client.tier}
-                        </Badge>
-                      )}
-                    </div>
+                    <Badge variant='outline'>
+                      {STATUS_LABEL[client.status] || client.status}
+                    </Badge>
                   </div>
                 </CardHeader>
                 <CardContent className='pt-0'>
