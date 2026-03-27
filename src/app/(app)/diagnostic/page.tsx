@@ -249,9 +249,8 @@ export default function DiagnosticPage() {
 
       const tier = tierResult?.tier || 'presencia_digital';
 
-      // Save diagnostic
+      // Save diagnostic — NOTE: diagnostics table has no tenant_id column
       const diagnosticData: Record<string, unknown> = {
-        tenant_id: tenantId,
         client_id: clientId,
         created_by: authUser.id,
         google_presence: googlePresence,
