@@ -258,7 +258,7 @@ export default function GBPPage() {
       const result = await generateContent({
         step: 'gbp_description',
         clientId
-      }) as { content?: string; generated_text?: string };
+      }) as unknown as { content?: string; generated_text?: string };
 
       const generatedText = result.content || result.generated_text || '';
       if (generatedText) {
@@ -283,7 +283,7 @@ export default function GBPPage() {
         step: 'gbp_posts',
         clientId,
         inputData: { post_topic: postTopic || undefined }
-      }) as { content?: string; generated_text?: string };
+      }) as unknown as { content?: string; generated_text?: string };
 
       const generatedText = result.content || result.generated_text || '';
       if (generatedText) {

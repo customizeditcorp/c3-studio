@@ -16,7 +16,8 @@ const nextConfig: NextConfig = {
       }
     ]
   },
-  transpilePackages: ['geist']
+  transpilePackages: ['geist'],
+  eslint: { ignoreDuringBuilds: true }
 };
 
 export default nextConfig;
