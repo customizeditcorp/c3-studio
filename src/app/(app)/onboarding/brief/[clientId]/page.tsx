@@ -57,7 +57,9 @@ function GeneratedAt({ date }: { date: string }) {
 }
 
 export default function BriefPage() {
-  const { clientId } = useParams<{ clientId: string }>();
+  const params = useParams<{ clientId: string | string[] }>();
+  const clientId =
+    typeof params.clientId === 'string' ? params.clientId : params.clientId?.[0];
   const { tenantId, user, loading: userLoading } = useUser();
   const supabase = createSupabaseClient();
 
@@ -86,7 +88,7 @@ export default function BriefPage() {
 
   useEffect(() => {
     if (!userLoading && tenantId && clientId) {
-      loadData();
+      void loadData();
     }
   }, [tenantId, userLoading, clientId]);
 
@@ -148,7 +150,18 @@ export default function BriefPage() {
 
   // BRIEF actions
   const handleGenerateBrief = async () => {
-    if (!tenantId || !user) return;
+    if (!clientId) {
+      toast.error('No se encontró el cliente en la URL');
+      return;
+    }
+    if (!user?.id) {
+      toast.error('Inicia sesión para generar el brief');
+      return;
+    }
+    if (!tenantId) {
+      toast.error('No hay organización asociada a tu perfil. No se puede generar el brief.');
+      return;
+    }
     setGeneratingBrief(true);
     try {
       const result = await generateContent({ step: 'brief', clientId }) as unknown as {
@@ -232,7 +245,18 @@ export default function BriefPage() {
 
   // PERSONA actions
   const handleGeneratePersona = async () => {
-    if (!tenantId || !user) return;
+    if (!clientId) {
+      toast.error('No se encontró el cliente en la URL');
+      return;
+    }
+    if (!user?.id) {
+      toast.error('Inicia sesión para continuar');
+      return;
+    }
+    if (!tenantId) {
+      toast.error('No hay organización asociada a tu perfil.');
+      return;
+    }
     setGeneratingPersona(true);
     try {
       const result = await generateContent({ step: 'buyer_persona', clientId }) as unknown as {
@@ -314,7 +338,18 @@ export default function BriefPage() {
 
   // OFV actions
   const handleGenerateOfv = async () => {
-    if (!tenantId || !user) return;
+    if (!clientId) {
+      toast.error('No se encontró el cliente en la URL');
+      return;
+    }
+    if (!user?.id) {
+      toast.error('Inicia sesión para continuar');
+      return;
+    }
+    if (!tenantId) {
+      toast.error('No hay organización asociada a tu perfil.');
+      return;
+    }
     setGeneratingOfv(true);
     try {
       const result = await generateContent({ step: 'ofv', clientId }) as unknown as {
@@ -450,6 +485,7 @@ export default function BriefPage() {
                       Genera el brief inicial del negocio con IA basado en el diagnóstico
                     </p>
                     <Button
+                      type='button'
                       onClick={handleGenerateBrief}
                       disabled={generatingBrief}
                     >
@@ -482,6 +518,7 @@ export default function BriefPage() {
                     <div className='flex gap-2 flex-wrap'>
                       {brief.status !== 'approved' && (
                         <Button
+                          type='button'
                           onClick={handleApproveBrief}
                           disabled={approvingBrief}
                           className='bg-green-600 hover:bg-green-700'
@@ -497,6 +534,7 @@ export default function BriefPage() {
                         </Button>
                       )}
                       <Button
+                        type='button'
                         variant='outline'
                         onClick={handleGenerateBrief}
                         disabled={generatingBrief}
@@ -542,6 +580,7 @@ export default function BriefPage() {
                       Genera el perfil del cliente ideal con IA
                     </p>
                     <Button
+                      type='button'
                       onClick={handleGeneratePersona}
                       disabled={generatingPersona}
                     >
@@ -574,6 +613,7 @@ export default function BriefPage() {
                     <div className='flex gap-2 flex-wrap'>
                       {persona.status !== 'approved' && (
                         <Button
+                          type='button'
                           onClick={handleApprovePersona}
                           disabled={approvingPersona}
                           className='bg-green-600 hover:bg-green-700'
@@ -589,6 +629,7 @@ export default function BriefPage() {
                         </Button>
                       )}
                       <Button
+                        type='button'
                         variant='outline'
                         onClick={handleGeneratePersona}
                         disabled={generatingPersona}
@@ -634,6 +675,7 @@ export default function BriefPage() {
                       Genera la propuesta de valor única del negocio con IA
                     </p>
                     <Button
+                      type='button'
                       onClick={handleGenerateOfv}
                       disabled={generatingOfv}
                     >
@@ -706,6 +748,7 @@ export default function BriefPage() {
                     <div className='flex gap-2 flex-wrap'>
                       {ofv.status !== 'approved' && (
                         <Button
+                          type='button'
                           onClick={handleApproveOfv}
                           disabled={approvingOfv}
                           className='bg-green-600 hover:bg-green-700'
@@ -721,6 +764,7 @@ export default function BriefPage() {
                         </Button>
                       )}
                       <Button
+                        type='button'
                         variant='outline'
                         onClick={handleGenerateOfv}
                         disabled={generatingOfv}

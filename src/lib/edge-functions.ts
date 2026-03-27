@@ -19,6 +19,7 @@ export async function generateContent(params: {
 }> {
   const response = await fetch('/api/generate-content', {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       step: params.step,
@@ -30,7 +31,10 @@ export async function generateContent(params: {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || `Error ${response.status} generando ${params.step}`);
+    throw new Error(
+      (typeof error.error === 'string' ? error.error : null) ||
+        `Error ${response.status} generando ${params.step}`
+    );
   }
 
   return response.json();
@@ -42,6 +46,7 @@ export async function generateAltText(params: {
 }): Promise<{ success: boolean; alt_text: string; photo_id: string }> {
   const response = await fetch('/api/generate-alt-text', {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ photo_id: params.photoId, client_id: params.clientId })
   });
