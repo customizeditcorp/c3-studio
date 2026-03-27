@@ -23,7 +23,44 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 
 // Tier calculation
-function calculateTier(revenueRange: string): {
+// Tier calculation — rule: if client lacks digital presence → ALWAYS Presencia Digital first,
+// regardless of revenue. Monthly plans only if presence is already established.
+function needsPresenciaDigital(
+  googlePresence: string,
+  digitalHealth: string
+): boolean {
+  const noGbp = googlePresence === 'no_gbp';
+  const nothingDigital = digitalHealth === 'nothing';
+  const lostAccess = digitalHealth === 'lost_access';
+  const inconsistent = digitalHealth === 'inconsistent';
+  return noGbp || nothingDigital || lostAccess || inconsistent;
+}
+
+const PRESENCIA_DIGITAL = {
+  tier: 'presencia_digital',
+  price: 3300,
+  planName: 'Presencia Digital — $3,300 pago único / 90 días',
+  billing: 'pago único',
+  features: [
+    'Google Business Profile creado y optimizado',
+    'Fotos profesionales (sesión básica)',
+    'NAP consistente en directorios principales',
+    'Setup inicial completo',
+    'Entrega en 7-10 días hábiles',
+    'Opción de continuar con plan mensual al terminar'
+  ],
+  scripts: [
+    '"Antes de hablar de marketing mensual, necesitamos construir la base. Sin presencia digital, ningún plan mensual va a funcionar. Con $3,300 te ponemos en el mapa en 90 días — y eso es tuyo para siempre."',
+    '"Este paquete resuelve el problema de raíz: que tus clientes no te encuentran. Una vez que estés en Google, hablamos del siguiente nivel."',
+    '"Piénsalo así: si consigues un solo trabajo extra al mes gracias a Google, recuperas la inversión en semanas. Y después del setup, tienes la opción de activar el mantenimiento mensual."'
+  ]
+};
+
+function calculateTier(
+  revenueRange: string,
+  googlePresence: string,
+  digitalHealth: string
+): {
   tier: string;
   price: number;
   planName: string;
@@ -31,26 +68,27 @@ function calculateTier(revenueRange: string): {
   features: string[];
   scripts: string[];
 } {
+  // Rule #1: No digital presence → always Presencia Digital first
+  if (needsPresenciaDigital(googlePresence, digitalHealth)) {
+    return PRESENCIA_DIGITAL;
+  }
+
+  // Rule #2: Has GBP but not ranking, or ranking but no calls →
+  // offer monthly plan based on revenue, but note setup may still be needed
+  const needsSetup = googlePresence === 'has_gbp_not_ranking';
+
   switch (revenueRange) {
     case 'less_10k':
+      // Low revenue + some presence → Presencia Digital is still the right entry
       return {
-        tier: 'presencia_digital',
-        price: 3300,
-        planName: 'Presencia Digital — INICIAL',
-        billing: 'pago único',
-        features: [
-          'Google Business Profile optimizado',
-          'Fotos profesionales (básico)',
-          'NAP consistente en directorios principales',
-          'Setup inicial completo',
-          'Entrega en 7-10 días hábiles'
-        ],
+        ...PRESENCIA_DIGITAL,
         scripts: [
-          '"Carlos, con $3,300 de inversión única, te ponemos en el mapa de Google completamente. Es la base que necesitas para que tus clientes te encuentren."',
-          '"Este paquete es perfecto para donde estás ahora: construir tu presencia digital desde cero, sin compromisos mensuales."',
-          '"Piénsalo así: si consigues un solo cliente extra al mes gracias a Google, recuperas la inversión en semanas."'
+          '"Con el presupuesto que manejas ahora, lo más inteligente es hacer el setup correcto primero. $3,300 una sola vez y tienes tu base lista."',
+          '"Una vez que tu GBP esté generando llamadas, activamos el plan mensual. Pero primero asegurémonos de que tienes algo que mantener."',
+          '"Muchos negocios en tu etapa cometen el error de pagar mensual sin tener la base. Nosotros lo hacemos al revés: base sólida primero."'
         ]
       };
+
     case '10k_25k':
       return {
         tier: 'cimientos',
@@ -62,14 +100,16 @@ function calculateTier(revenueRange: string): {
           'Publicaciones semanales en Google',
           'Respuesta a reseñas',
           'Monitoreo de rankings',
-          'Reporte mensual de resultados'
-        ],
+          'Reporte mensual de resultados',
+          needsSetup ? 'Setup/corrección de GBP incluido (primer mes)' : 'Optimización continua'
+        ].filter(Boolean),
         scripts: [
           '"Con $399 al mes, tendrás a alguien trabajando tu Google todos los días. ¿Cuánto vale para ti aparecer primero en tu zona?"',
-          '"Tu negocio ya está generando entre $10K y $25K al mes — estás listo para crecer. Este plan te da la infraestructura digital que necesitas."',
+          '"Tu negocio ya genera entre $10K y $25K al mes — estás listo para crecer. Este plan te da la infraestructura digital que necesitas."',
           '"Son $13 al día. Menos de lo que gastas en gasolina. Y tu competencia ya lo está haciendo."'
         ]
       };
+
     case '25k_60k':
       return {
         tier: 'expansion',
@@ -90,6 +130,7 @@ function calculateTier(revenueRange: string): {
           '"$599 al mes para un negocio que factura $25K+ es menos del 2.4% de tu ingreso. Con los resultados que generamos, se paga solo."'
         ]
       };
+
     case 'more_60k':
       return {
         tier: 'dominio',
@@ -111,15 +152,9 @@ function calculateTier(revenueRange: string): {
           '"Los líderes del mercado invierten en su presencia digital. ¿Quieres seguir siendo líder o dejarle el espacio a tu competencia?"'
         ]
       };
+
     default:
-      return {
-        tier: 'presencia_digital',
-        price: 3300,
-        planName: 'Presencia Digital — INICIAL',
-        billing: 'pago único',
-        features: [],
-        scripts: []
-      };
+      return PRESENCIA_DIGITAL;
   }
 }
 
@@ -203,7 +238,13 @@ export default function DiagnosticPage() {
     }
   }, [tenantId, userLoading]);
 
-  const tierResult = revenueRange ? calculateTier(revenueRange) : null;
+  // Calculate tier using all signals: revenue + google presence + digital health
+  const tierResult =
+    revenueRange && googlePresence && digitalHealth
+      ? calculateTier(revenueRange, googlePresence, digitalHealth)
+      : revenueRange
+        ? calculateTier(revenueRange, googlePresence || '', digitalHealth || '')
+        : null;
 
   const handleSaveDiagnostic = async () => {
     if (!tenantId) return;
