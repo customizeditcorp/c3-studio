@@ -206,10 +206,14 @@ export default function DiagnosticPage() {
   const tierResult = revenueRange ? calculateTier(revenueRange) : null;
 
   const handleSaveDiagnostic = async () => {
-    if (!tenantId || !user) return;
+    if (!tenantId) return;
     setSaving(true);
 
     try {
+      // Get fresh auth user to ensure created_by is correct
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+      if (authError || !authUser) throw new Error('Usuario no autenticado');
+
       let clientId = selectedClientId;
 
       // Create client if new
@@ -232,7 +236,7 @@ export default function DiagnosticPage() {
 
         await logActivity({
           tenantId,
-          userId: user.id,
+          userId: authUser.id,
           action: 'client_created',
           entityType: 'client',
           entityId: clientId,
@@ -241,7 +245,7 @@ export default function DiagnosticPage() {
         });
       }
 
-      if (!clientId) throw new Error('No client selected');
+      if (!clientId) throw new Error('Selecciona o crea un cliente primero');
 
       const tier = tierResult?.tier || 'presencia_digital';
 
@@ -249,7 +253,7 @@ export default function DiagnosticPage() {
       const diagnosticData: Record<string, unknown> = {
         tenant_id: tenantId,
         client_id: clientId,
-        created_by: user.id,
+        created_by: authUser.id,
         google_presence: googlePresence,
         license_status: licenseStatus,
         digital_health: digitalHealth,
@@ -261,6 +265,8 @@ export default function DiagnosticPage() {
         recommended_price: tierResult?.price
       };
 
+      console.log('Inserting diagnostic:', JSON.stringify(diagnosticData));
+
       const { data: diagnostic, error: diagError } = await supabase
         .from('diagnostics')
         .insert(diagnosticData)
@@ -269,7 +275,7 @@ export default function DiagnosticPage() {
 
       if (diagError) {
         console.error('Diagnostic insert error:', JSON.stringify(diagError));
-        throw new Error(`Error guardando diagnóstico: ${diagError.message} (code: ${diagError.code})`);
+        throw new Error(`${diagError.message} (code: ${diagError.code})`);
       }
 
       // Update client status and tier
@@ -281,7 +287,7 @@ export default function DiagnosticPage() {
 
       await logActivity({
         tenantId,
-        userId: user.id,
+        userId: authUser.id,
         action: 'diagnostic_completed',
         entityType: 'diagnostic',
         entityId: diagnostic.id,
