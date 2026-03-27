@@ -219,13 +219,15 @@ export default function DiagnosticPage() {
           .insert({
             ...newClientData,
             tenant_id: tenantId,
-            status: 'lead',
-            created_by: user.id
+            status: 'lead'
           })
           .select()
           .single();
 
-        if (clientError) throw clientError;
+        if (clientError) {
+          console.error('Client insert error:', JSON.stringify(clientError));
+          throw new Error(`Error creando cliente: ${clientError.message}`);
+        }
         clientId = newClient.id;
 
         await logActivity({
@@ -244,7 +246,7 @@ export default function DiagnosticPage() {
       const tier = tierResult?.tier || 'presencia_digital';
 
       // Save diagnostic
-      const diagnosticData = {
+      const diagnosticData: Record<string, unknown> = {
         tenant_id: tenantId,
         client_id: clientId,
         created_by: user.id,
@@ -256,8 +258,7 @@ export default function DiagnosticPage() {
         expectation,
         client_management: clientManagement,
         recommended_tier: tier,
-        recommended_price: tierResult?.price,
-        outcome: 'pending'
+        recommended_price: tierResult?.price
       };
 
       const { data: diagnostic, error: diagError } = await supabase
@@ -266,7 +267,10 @@ export default function DiagnosticPage() {
         .select()
         .single();
 
-      if (diagError) throw diagError;
+      if (diagError) {
+        console.error('Diagnostic insert error:', JSON.stringify(diagError));
+        throw new Error(`Error guardando diagnóstico: ${diagError.message} (code: ${diagError.code})`);
+      }
 
       // Update client status and tier
       await supabase
@@ -289,7 +293,8 @@ export default function DiagnosticPage() {
       toast.success('Diagnóstico guardado correctamente');
     } catch (error) {
       console.error('Error saving diagnostic:', error);
-      toast.error('Error al guardar el diagnóstico');
+      const msg = error instanceof Error ? error.message : 'Error al guardar el diagnóstico';
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
