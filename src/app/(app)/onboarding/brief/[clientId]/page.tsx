@@ -35,7 +35,7 @@ type OFVData = {
 function StatusBadge({ status }: { status: string }) {
   if (status === 'approved') {
     return (
-      <Badge className='bg-green-100 text-green-800 border-green-200'>
+      <Badge className='border-green-200 bg-green-100 text-green-800'>
         Aprobado ✓
       </Badge>
     );
@@ -45,8 +45,9 @@ function StatusBadge({ status }: { status: string }) {
 
 function GeneratedAt({ date }: { date: string }) {
   return (
-    <p className='text-xs text-muted-foreground'>
-      Generado: {new Date(date).toLocaleDateString('es-MX', {
+    <p className='text-muted-foreground text-xs'>
+      Generado:{' '}
+      {new Date(date).toLocaleDateString('es-MX', {
         year: 'numeric',
         month: 'short',
         day: 'numeric',
@@ -60,7 +61,9 @@ function GeneratedAt({ date }: { date: string }) {
 export default function BriefPage() {
   const params = useParams<{ clientId: string | string[] }>();
   const clientId =
-    typeof params.clientId === 'string' ? params.clientId : params.clientId?.[0];
+    typeof params.clientId === 'string'
+      ? params.clientId
+      : params.clientId?.[0];
   const { tenantId, user, loading: userLoading } = useUser();
   const supabase = createSupabaseClient();
 
@@ -157,7 +160,9 @@ export default function BriefPage() {
       return;
     }
     if (!tenantId) {
-      toast.error('No hay organización asociada a tu perfil. No se puede generar el brief.');
+      toast.error(
+        'No hay organización asociada a tu perfil. No se puede generar el brief.'
+      );
       return;
     }
     setGeneratingBrief(true);
@@ -200,7 +205,9 @@ export default function BriefPage() {
       toast.success('Brief generado correctamente');
     } catch (error) {
       console.error('Error generating brief:', error);
-      toast.error(`Error al generar el brief: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+      toast.error(
+        `Error al generar el brief: ${error instanceof Error ? error.message : 'Error desconocido'}`
+      );
     } finally {
       setGeneratingBrief(false);
     }
@@ -215,7 +222,7 @@ export default function BriefPage() {
         .update({ status: 'approved' })
         .eq('id', brief.id);
 
-      setBrief((prev) => prev ? { ...prev, status: 'approved' } : prev);
+      setBrief((prev) => (prev ? { ...prev, status: 'approved' } : prev));
 
       await logActivity({
         tenantId,
@@ -289,7 +296,9 @@ export default function BriefPage() {
       toast.success('Buyer Persona generada');
     } catch (error) {
       console.error('Error generating persona:', error);
-      toast.error(`Error al generar la persona: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+      toast.error(
+        `Error al generar la persona: ${error instanceof Error ? error.message : 'Error desconocido'}`
+      );
     } finally {
       setGeneratingPersona(false);
     }
@@ -304,7 +313,7 @@ export default function BriefPage() {
         .update({ status: 'approved' })
         .eq('id', persona.id);
 
-      setPersona((prev) => prev ? { ...prev, status: 'approved' } : prev);
+      setPersona((prev) => (prev ? { ...prev, status: 'approved' } : prev));
 
       await logActivity({
         tenantId,
@@ -368,8 +377,9 @@ export default function BriefPage() {
           }
         }
       } else if (fallbackText || contentObj) {
-        const contentStr =
-          contentObj ? JSON.stringify(contentObj) : fallbackText;
+        const contentStr = contentObj
+          ? JSON.stringify(contentObj)
+          : fallbackText;
         setOfv({
           id: fallbackId,
           content: contentStr,
@@ -401,7 +411,9 @@ export default function BriefPage() {
       toast.success('OFV generado');
     } catch (error) {
       console.error('Error generating OFV:', error);
-      toast.error(`Error al generar el OFV: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+      toast.error(
+        `Error al generar el OFV: ${error instanceof Error ? error.message : 'Error desconocido'}`
+      );
     } finally {
       setGeneratingOfv(false);
     }
@@ -416,7 +428,7 @@ export default function BriefPage() {
         .update({ status: 'approved' })
         .eq('id', ofv.id);
 
-      setOfv((prev) => prev ? { ...prev, status: 'approved' } : prev);
+      setOfv((prev) => (prev ? { ...prev, status: 'approved' } : prev));
 
       await logActivity({
         tenantId,
@@ -468,7 +480,7 @@ export default function BriefPage() {
           </TabsList>
 
           {/* TAB 1: BRIEF */}
-          <TabsContent value='brief' className='mt-4 space-y-4 max-w-3xl'>
+          <TabsContent value='brief' className='mt-4 max-w-3xl space-y-4'>
             <Card>
               <CardHeader className='flex flex-row items-center justify-between space-y-0'>
                 <CardTitle className='text-base'>Brief del negocio</CardTitle>
@@ -476,9 +488,10 @@ export default function BriefPage() {
               </CardHeader>
               <CardContent className='space-y-4'>
                 {!brief ? (
-                  <div className='text-center py-6'>
-                    <p className='text-muted-foreground text-sm mb-4'>
-                      Genera el brief inicial del negocio con IA basado en el diagnóstico
+                  <div className='py-6 text-center'>
+                    <p className='text-muted-foreground mb-4 text-sm'>
+                      Genera el brief inicial del negocio con IA basado en el
+                      diagnóstico
                     </p>
                     <Button
                       type='button'
@@ -497,21 +510,27 @@ export default function BriefPage() {
                   </div>
                 ) : (
                   <>
-                    <div className='flex items-center gap-3 mb-2'>
+                    <div className='mb-2 flex items-center gap-3'>
                       <GeneratedAt date={brief.created_at} />
                       {brief.tokens_used && (
-                        <p className='text-xs text-muted-foreground'>
+                        <p className='text-muted-foreground text-xs'>
                           {brief.tokens_used} tokens
                         </p>
                       )}
                     </div>
                     <Textarea
-                      value={brief.content}
-                      readOnly
-                      rows={16}
-                      className='font-mono text-xs bg-muted/30 resize-none'
+                      value={
+                        typeof brief.content === 'object' &&
+                        brief.content !== null
+                          ? (brief.content as any).raw_text ||
+                            JSON.stringify(brief.content, null, 2)
+                          : String(brief.content || '')
+                      }
+                      // readOnly
+                      rows={24}
+                      className='bg-muted/30 resize-none font-mono text-xs'
                     />
-                    <div className='flex gap-2 flex-wrap'>
+                    <div className='flex flex-wrap gap-2'>
                       {brief.status !== 'approved' && (
                         <Button
                           type='button'
@@ -546,8 +565,9 @@ export default function BriefPage() {
                       </Button>
                     </div>
                     {brief.status === 'approved' && (
-                      <p className='text-sm text-green-700 font-medium'>
-                        ✅ Brief aprobado. Ahora puedes generar la Buyer Persona.
+                      <p className='text-sm font-medium text-green-700'>
+                        ✅ Brief aprobado. Ahora puedes generar la Buyer
+                        Persona.
                       </p>
                     )}
                   </>
@@ -557,7 +577,7 @@ export default function BriefPage() {
           </TabsContent>
 
           {/* TAB 2: BUYER PERSONA */}
-          <TabsContent value='persona' className='mt-4 space-y-4 max-w-3xl'>
+          <TabsContent value='persona' className='mt-4 max-w-3xl space-y-4'>
             <Card>
               <CardHeader className='flex flex-row items-center justify-between space-y-0'>
                 <CardTitle className='text-base'>Buyer Persona</CardTitle>
@@ -565,14 +585,15 @@ export default function BriefPage() {
               </CardHeader>
               <CardContent className='space-y-4'>
                 {!briefApproved ? (
-                  <div className='text-center py-6'>
+                  <div className='py-6 text-center'>
                     <p className='text-muted-foreground text-sm'>
-                      🔒 Primero debes aprobar el Brief para generar la Buyer Persona
+                      🔒 Primero debes aprobar el Brief para generar la Buyer
+                      Persona
                     </p>
                   </div>
                 ) : !persona ? (
-                  <div className='text-center py-6'>
-                    <p className='text-muted-foreground text-sm mb-4'>
+                  <div className='py-6 text-center'>
+                    <p className='text-muted-foreground mb-4 text-sm'>
                       Genera el perfil del cliente ideal con IA
                     </p>
                     <Button
@@ -592,21 +613,27 @@ export default function BriefPage() {
                   </div>
                 ) : (
                   <>
-                    <div className='flex items-center gap-3 mb-2'>
+                    <div className='mb-2 flex items-center gap-3'>
                       <GeneratedAt date={persona.created_at} />
                       {persona.tokens_used && (
-                        <p className='text-xs text-muted-foreground'>
+                        <p className='text-muted-foreground text-xs'>
                           {persona.tokens_used} tokens
                         </p>
                       )}
                     </div>
                     <Textarea
-                      value={persona.content}
-                      readOnly
-                      rows={16}
-                      className='font-mono text-xs bg-muted/30 resize-none'
+                      value={
+                        typeof persona.content === 'object' &&
+                        persona.content !== null
+                          ? (persona.content as any).raw_text ||
+                            JSON.stringify(persona.content, null, 2)
+                          : String(persona.content || '')
+                      }
+                      // readOnly
+                      rows={24}
+                      className='bg-muted/30 resize-none font-mono text-xs'
                     />
-                    <div className='flex gap-2 flex-wrap'>
+                    <div className='flex flex-wrap gap-2'>
                       {persona.status !== 'approved' && (
                         <Button
                           type='button'
@@ -641,7 +668,7 @@ export default function BriefPage() {
                       </Button>
                     </div>
                     {persona.status === 'approved' && (
-                      <p className='text-sm text-green-700 font-medium'>
+                      <p className='text-sm font-medium text-green-700'>
                         ✅ Buyer Persona aprobada. Ahora puedes generar el OFV.
                       </p>
                     )}
@@ -652,22 +679,25 @@ export default function BriefPage() {
           </TabsContent>
 
           {/* TAB 3: OFV */}
-          <TabsContent value='ofv' className='mt-4 space-y-4 max-w-3xl'>
+          <TabsContent value='ofv' className='mt-4 max-w-3xl space-y-4'>
             <Card>
               <CardHeader className='flex flex-row items-center justify-between space-y-0'>
-                <CardTitle className='text-base'>Oferta de Valor (OFV)</CardTitle>
+                <CardTitle className='text-base'>
+                  Oferta de Valor (OFV)
+                </CardTitle>
                 {ofv && <StatusBadge status={ofv.status} />}
               </CardHeader>
               <CardContent className='space-y-4'>
                 {!personaApproved ? (
-                  <div className='text-center py-6'>
+                  <div className='py-6 text-center'>
                     <p className='text-muted-foreground text-sm'>
-                      🔒 Primero debes aprobar la Buyer Persona para generar el OFV
+                      🔒 Primero debes aprobar la Buyer Persona para generar el
+                      OFV
                     </p>
                   </div>
                 ) : !ofv ? (
-                  <div className='text-center py-6'>
-                    <p className='text-muted-foreground text-sm mb-4'>
+                  <div className='py-6 text-center'>
+                    <p className='text-muted-foreground mb-4 text-sm'>
                       Genera la propuesta de valor única del negocio con IA
                     </p>
                     <Button
@@ -687,29 +717,32 @@ export default function BriefPage() {
                   </div>
                 ) : (
                   <>
-                    <div className='flex items-center gap-3 mb-2'>
+                    <div className='mb-2 flex items-center gap-3'>
                       <GeneratedAt date={ofv.created_at} />
                       {ofv.tokens_used && (
-                        <p className='text-xs text-muted-foreground'>
+                        <p className='text-muted-foreground text-xs'>
                           {ofv.tokens_used} tokens
                         </p>
                       )}
                     </div>
 
                     {/* Structured OFV display */}
-                    {ofvData && (ofvData.big_promise || ofvData.vehicle_name) ? (
+                    {ofvData &&
+                    (ofvData.big_promise || ofvData.vehicle_name) ? (
                       <div className='grid gap-3'>
                         {ofvData.big_promise && (
-                          <div className='rounded-lg border p-4 bg-primary/5'>
-                            <p className='text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1'>
+                          <div className='bg-primary/5 rounded-lg border p-4'>
+                            <p className='text-muted-foreground mb-1 text-xs font-semibold tracking-wide uppercase'>
                               Gran Promesa
                             </p>
-                            <p className='text-sm font-medium'>{ofvData.big_promise}</p>
+                            <p className='text-sm font-medium'>
+                              {ofvData.big_promise}
+                            </p>
                           </div>
                         )}
                         {ofvData.vehicle_name && (
                           <div className='rounded-lg border p-4'>
-                            <p className='text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1'>
+                            <p className='text-muted-foreground mb-1 text-xs font-semibold tracking-wide uppercase'>
                               Nombre del Vehículo
                             </p>
                             <p className='text-sm'>{ofvData.vehicle_name}</p>
@@ -717,7 +750,7 @@ export default function BriefPage() {
                         )}
                         {ofvData.quick_win && (
                           <div className='rounded-lg border p-4'>
-                            <p className='text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1'>
+                            <p className='text-muted-foreground mb-1 text-xs font-semibold tracking-wide uppercase'>
                               Quick Win
                             </p>
                             <p className='text-sm'>{ofvData.quick_win}</p>
@@ -725,7 +758,7 @@ export default function BriefPage() {
                         )}
                         {ofvData.guarantee && (
                           <div className='rounded-lg border p-4'>
-                            <p className='text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1'>
+                            <p className='text-muted-foreground mb-1 text-xs font-semibold tracking-wide uppercase'>
                               Garantía
                             </p>
                             <p className='text-sm'>{ofvData.guarantee}</p>
@@ -734,14 +767,20 @@ export default function BriefPage() {
                       </div>
                     ) : (
                       <Textarea
-                        value={ofv.content}
-                        readOnly
-                        rows={12}
-                        className='font-mono text-xs bg-muted/30 resize-none'
+                        value={
+                          typeof ofv.content === 'object' &&
+                          ofv.content !== null
+                            ? (ofv.content as any).raw_text ||
+                              JSON.stringify(ofv.content, null, 2)
+                            : String(ofv.content || '')
+                        }
+                        // readOnly
+                        rows={20}
+                        className='bg-muted/30 resize-none font-mono text-xs'
                       />
                     )}
 
-                    <div className='flex gap-2 flex-wrap'>
+                    <div className='flex flex-wrap gap-2'>
                       {ofv.status !== 'approved' && (
                         <Button
                           type='button'
@@ -776,7 +815,7 @@ export default function BriefPage() {
                       </Button>
                     </div>
                     {ofv.status === 'approved' && (
-                      <p className='text-sm text-green-700 font-medium'>
+                      <p className='text-sm font-medium text-green-700'>
                         ✅ OFV aprobado. El flujo de contenido está completo.
                       </p>
                     )}
