@@ -1,88 +1,84 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
-
-const CLAUDE_MODEL =
-  process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-20250514';
-
+import OpenAI from 'openai';
+const AI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o';
 export async function POST(request: NextRequest) {
   try {
-    if (!process.env.ANTHROPIC_API_KEY) {
+    if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
-        { error: 'ANTHROPIC_API_KEY is not configured' },
+        { error: 'OPENAI_API_KEY is not configured' },
         { status: 503 }
       );
     }
-
     const cookieStore = await cookies();
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
-          getAll() { return cookieStore.getAll(); },
+          getAll() {
+            return cookieStore.getAll();
+          },
           setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
           }
         }
       }
     );
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const {
+      data: { user },
+      error: authError
+    } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-
     const body = await request.json();
     const { step, client_id, input_data, save = true } = body;
-
     if (!step || !client_id) {
-      return NextResponse.json({ error: 'step and client_id are required' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'step and client_id are required' },
+        { status: 400 }
+      );
     }
-
     const { data: client, error: clientError } = await supabase
       .from('clients')
       .select('*')
       .eq('id', client_id)
       .single();
-
     if (clientError || !client) {
-      return NextResponse.json({ error: `Client not found: ${client_id}` }, { status: 404 });
+      return NextResponse.json(
+        { error: 'Client not found: ' + client_id },
+        { status: 404 }
+      );
     }
-
     const clientTenantId = client.tenant_id as string;
-
     const { data: operator, error: opErr } = await supabase
       .from('users')
       .select('tenant_id')
       .eq('id', user.id)
       .maybeSingle();
-
     if (opErr || !operator?.tenant_id) {
       return NextResponse.json(
         { error: 'Operator profile missing or has no tenant_id' },
         { status: 403 }
       );
     }
-
     if (operator.tenant_id !== clientTenantId) {
       return NextResponse.json(
         { error: 'Forbidden: client belongs to another organization' },
         { status: 403 }
       );
     }
-
-    const promptSelect =
-      'id, system_prompt, methodology, validation_rules';
-
+    const promptSelect = 'id, system_prompt, methodology, validation_rules';
     let prompt: {
       id: string;
       system_prompt: string;
       methodology: string | null;
       validation_rules: unknown;
     } | null = null;
-
     const { data: tenantPrompt, error: tpErr } = await supabase
       .from('prompt_versions')
       .select(promptSelect)
@@ -92,10 +88,9 @@ export async function POST(request: NextRequest) {
       .order('version', { ascending: false })
       .limit(1)
       .maybeSingle();
-
     if (tpErr) {
       return NextResponse.json(
-        { error: `Prompt lookup failed: ${tpErr.message}` },
+        { error: 'Prompt lookup failed: ' + tpErr.message },
         { status: 500 }
       );
     }
@@ -113,29 +108,52 @@ export async function POST(request: NextRequest) {
         .maybeSingle();
       if (gpErr) {
         return NextResponse.json(
-          { error: `Prompt lookup failed: ${gpErr.message}` },
+          { error: 'Prompt lookup failed: ' + gpErr.message },
           { status: 500 }
         );
       }
       prompt = globalPrompt;
     }
-
     if (!prompt) {
       return NextResponse.json(
-        { error: `No active prompt found for step: ${step}` },
+        { error: 'No active prompt found for step: ' + step },
         { status: 404 }
       );
     }
-
     let contextChain = '';
-    const needsBrief = ['buyer_persona', 'ofv', 'gbp_description', 'gbp_posts',
-      'campaign_copy', 'website_home', 'website_service', 'website_location',
-      'nurturing', 'social_content'].includes(step);
-    const needsPersona = ['ofv', 'gbp_description', 'gbp_posts', 'campaign_copy',
-      'website_home', 'website_service', 'website_location', 'nurturing', 'social_content'].includes(step);
-    const needsOffer = ['gbp_description', 'gbp_posts', 'campaign_copy',
-      'website_home', 'website_service', 'website_location', 'nurturing', 'social_content'].includes(step);
-
+    const needsBrief = [
+      'buyer_persona',
+      'ofv',
+      'gbp_description',
+      'gbp_posts',
+      'campaign_copy',
+      'website_home',
+      'website_service',
+      'website_location',
+      'nurturing',
+      'social_content'
+    ].includes(step);
+    const needsPersona = [
+      'ofv',
+      'gbp_description',
+      'gbp_posts',
+      'campaign_copy',
+      'website_home',
+      'website_service',
+      'website_location',
+      'nurturing',
+      'social_content'
+    ].includes(step);
+    const needsOffer = [
+      'gbp_description',
+      'gbp_posts',
+      'campaign_copy',
+      'website_home',
+      'website_service',
+      'website_location',
+      'nurturing',
+      'social_content'
+    ].includes(step);
     if (needsBrief) {
       const { data: brief } = await supabase
         .from('briefs')
@@ -145,9 +163,11 @@ export async function POST(request: NextRequest) {
         .order('version', { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (brief) contextChain += `\n\n## BRIEF DEL NEGOCIO (APROBADO)\n${brief.raw_text || JSON.stringify(brief.content)}`;
+      if (brief)
+        contextChain +=
+          '\n\n## BRIEF DEL NEGOCIO (APROBADO)\n' +
+          (brief.raw_text || JSON.stringify(brief.content));
     }
-
     if (needsPersona) {
       const { data: persona } = await supabase
         .from('buyer_personas')
@@ -157,9 +177,11 @@ export async function POST(request: NextRequest) {
         .order('version', { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (persona) contextChain += `\n\n## BUYER PERSONA (APROBADO)\n${persona.raw_text || JSON.stringify(persona.content)}`;
+      if (persona)
+        contextChain +=
+          '\n\n## BUYER PERSONA (APROBADO)\n' +
+          (persona.raw_text || JSON.stringify(persona.content));
     }
-
     if (needsOffer) {
       const { data: offer } = await supabase
         .from('offers')
@@ -169,60 +191,79 @@ export async function POST(request: NextRequest) {
         .order('version', { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (offer) contextChain += `\n\n## OFERTA DE VALOR (APROBADA)\nBig Promise: ${offer.big_promise}\nVehículo: ${offer.vehicle_name} — ${offer.vehicle_description}\nQuick Win: ${offer.quick_win}\nGarantía: ${offer.guarantee}`;
+      if (offer)
+        contextChain +=
+          '\n\n## OFERTA DE VALOR (APROBADA)\nBig Promise: ' +
+          offer.big_promise +
+          '\nVehiculo: ' +
+          offer.vehicle_name +
+          ' — ' +
+          offer.vehicle_description +
+          '\nQuick Win: ' +
+          offer.quick_win +
+          '\nGarantia: ' +
+          offer.guarantee;
     }
-
-    const userMessage = `
-## DATOS DEL CLIENTE
-Negocio: ${client.business_name}
-Industria: ${client.industry}
-Contacto: ${client.contact_first_name || ''} ${client.contact_last_name || ''}
-Teléfono: ${client.phone || 'N/A'}
-Email: ${client.email || 'N/A'}
-Tier: ${client.tier || 'N/A'}
-${contextChain}
-
-## INPUT ADICIONAL DEL OPERADOR
-${input_data ? JSON.stringify(input_data, null, 2) : 'Sin datos adicionales.'}
-
-Genera el output en formato JSON + raw_text (markdown). Responde SOLO con JSON válido, sin backticks ni texto adicional.`;
-
-    const anthropic = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY
-    });
-
-    const claudeResponse = await anthropic.messages.create({
-      model: CLAUDE_MODEL,
+    const userMessage =
+      '## DATOS DEL CLIENTE\nNegocio: ' +
+      client.business_name +
+      '\nIndustria: ' +
+      client.industry +
+      '\nContacto: ' +
+      (client.contact_first_name || '') +
+      ' ' +
+      (client.contact_last_name || '') +
+      '\nTelefono: ' +
+      (client.phone || 'N/A') +
+      '\nEmail: ' +
+      (client.email || 'N/A') +
+      '\nTier: ' +
+      (client.tier || 'N/A') +
+      contextChain +
+      '\n\n## INPUT ADICIONAL DEL OPERADOR\n' +
+      (input_data
+        ? JSON.stringify(input_data, null, 2)
+        : 'Sin datos adicionales.') +
+      '\n\nGenera el output en formato JSON + raw_text (markdown). Responde SOLO con JSON valido, sin backticks ni texto adicional.';
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const completion = await openai.chat.completions.create({
+      model: AI_MODEL,
       max_tokens: 4096,
-      system: prompt.system_prompt,
-      messages: [{ role: 'user', content: userMessage }]
+      messages: [
+        { role: 'system', content: prompt.system_prompt },
+        { role: 'user', content: userMessage }
+      ]
     });
-
-    const responseText = claudeResponse.content
-      .filter((c) => c.type === 'text')
-      .map((c) => (c as { type: 'text'; text: string }).text)
-      .join('');
-
+    const responseText = completion.choices[0]?.message?.content || '';
     let parsedContent: Record<string, unknown>;
     let rawText = responseText;
     try {
-      const cleaned = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      const cleaned = responseText
+        .replace(/```json\n?/g, '')
+        .replace(/```\n?/g, '')
+        .trim();
       parsedContent = JSON.parse(cleaned);
       rawText = (parsedContent.raw_text as string) || responseText;
     } catch {
       parsedContent = { generated_text: responseText };
       rawText = responseText;
     }
-
     let savedRecord: Record<string, unknown> | null = null;
     const tableMap: Record<string, string> = {
       brief: 'briefs',
       buyer_persona: 'buyer_personas',
       ofv: 'offers'
     };
-    const outputSteps = ['gbp_description', 'gbp_posts', 'campaign_copy',
-      'website_home', 'website_service', 'website_location', 'nurturing', 'social_content'];
-
+    const outputSteps = [
+      'gbp_description',
+      'gbp_posts',
+      'campaign_copy',
+      'website_home',
+      'website_service',
+      'website_location',
+      'nurturing',
+      'social_content'
+    ];
     if (save) {
       if (tableMap[step]) {
         const table = tableMap[step];
@@ -234,31 +275,44 @@ Genera el output en formato JSON + raw_text (markdown). Responde SOLO con JSON v
           status: 'draft',
           version: 1
         };
-
         if (step === 'ofv' && parsedContent) {
-          const { data: latestPersona } = await supabase
-            .from('buyer_personas').select('id').eq('client_id', client_id)
-            .order('created_at', { ascending: false }).limit(1).maybeSingle();
-          if (latestPersona) insertData.persona_id = latestPersona.id;
-          if (parsedContent.big_promise) insertData.big_promise = parsedContent.big_promise;
-          if (parsedContent.vehicle_name) insertData.vehicle_name = parsedContent.vehicle_name;
-          if (parsedContent.vehicle_description) insertData.vehicle_description = parsedContent.vehicle_description;
-          if (parsedContent.quick_win) insertData.quick_win = parsedContent.quick_win;
-          if (parsedContent.decision_frame) insertData.decision_frame = parsedContent.decision_frame;
-          if (parsedContent.guarantee) insertData.guarantee = parsedContent.guarantee;
-          if (parsedContent.urgency) insertData.urgency = parsedContent.urgency;
-          if (parsedContent.social_proof) insertData.social_proof = parsedContent.social_proof;
-          if (parsedContent.deliverables) insertData.deliverables = parsedContent.deliverables;
+          const { data: lp } = await supabase
+            .from('buyer_personas')
+            .select('id')
+            .eq('client_id', client_id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (lp) insertData.persona_id = lp.id;
+          for (const k of [
+            'big_promise',
+            'vehicle_name',
+            'vehicle_description',
+            'quick_win',
+            'decision_frame',
+            'guarantee',
+            'urgency',
+            'social_proof',
+            'deliverables'
+          ]) {
+            if (parsedContent[k]) insertData[k] = parsedContent[k];
+          }
         }
-
         if (step === 'buyer_persona') {
-          const { data: latestBrief } = await supabase
-            .from('briefs').select('id').eq('client_id', client_id)
-            .order('created_at', { ascending: false }).limit(1).maybeSingle();
-          if (latestBrief) insertData.brief_id = latestBrief.id;
+          const { data: lb } = await supabase
+            .from('briefs')
+            .select('id')
+            .eq('client_id', client_id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (lb) insertData.brief_id = lb.id;
         }
-
-        const { data, error } = await supabase.from(table).insert(insertData).select().single();
+        const { data, error } = await supabase
+          .from(table)
+          .insert(insertData)
+          .select()
+          .single();
         if (error) {
           return NextResponse.json(
             { success: false, error: error.message, code: error.code },
@@ -266,21 +320,28 @@ Genera el output en formato JSON + raw_text (markdown). Responde SOLO con JSON v
           );
         }
         savedRecord = data;
-
       } else if (outputSteps.includes(step)) {
-        const { data: latestOffer } = await supabase
-          .from('offers').select('id').eq('client_id', client_id)
-          .order('created_at', { ascending: false }).limit(1).maybeSingle();
-        const { data, error } = await supabase.from('generated_outputs').insert({
-          client_id,
-          offer_id: latestOffer?.id || null,
-          prompt_version_id: prompt.id,
-          output_type: step,
-          content: parsedContent,
-          language: (parsedContent?.language as string) || 'es',
-          status: 'draft',
-          version: 1
-        }).select().single();
+        const { data: lo } = await supabase
+          .from('offers')
+          .select('id')
+          .eq('client_id', client_id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const { data, error } = await supabase
+          .from('generated_outputs')
+          .insert({
+            client_id,
+            offer_id: lo?.id || null,
+            prompt_version_id: prompt.id,
+            output_type: step,
+            content: parsedContent,
+            language: (parsedContent?.language as string) || 'es',
+            status: 'draft',
+            version: 1
+          })
+          .select()
+          .single();
         if (error) {
           return NextResponse.json(
             { success: false, error: error.message, code: error.code },
@@ -289,27 +350,27 @@ Genera el output en formato JSON + raw_text (markdown). Responde SOLO con JSON v
         }
         savedRecord = data;
       }
-
-      if (save) {
-        const persistedStep = Boolean(tableMap[step]) || outputSteps.includes(step);
-        if (!persistedStep || savedRecord) {
-          await supabase.from('activity_log').insert({
+      const persistedStep =
+        Boolean(tableMap[step]) || outputSteps.includes(step);
+      if (!persistedStep || savedRecord) {
+        await supabase
+          .from('activity_log')
+          .insert({
             tenant_id: clientTenantId,
             client_id,
             user_id: user.id,
-            action: `${step}_generated`,
+            action: step + '_generated',
             entity_type: step,
-            entity_id: savedRecord?.id != null ? String(savedRecord.id) : client_id,
+            entity_id:
+              savedRecord?.id != null ? String(savedRecord.id) : client_id,
             metadata: {
               prompt_version_id: prompt.id,
               methodology: prompt.methodology,
-              model: CLAUDE_MODEL
+              model: AI_MODEL
             }
           });
-        }
       }
     }
-
     return NextResponse.json({
       success: true,
       step,
@@ -318,7 +379,6 @@ Genera el output en formato JSON + raw_text (markdown). Responde SOLO con JSON v
       saved: savedRecord ? { id: savedRecord.id, table: step } : null,
       prompt_version: prompt.id
     });
-
   } catch (error) {
     console.error('generate-content error:', error);
     return NextResponse.json(

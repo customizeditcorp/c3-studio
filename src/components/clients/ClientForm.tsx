@@ -16,6 +16,41 @@ import { useUser } from '@/contexts/UserContext';
 import { logActivity } from '@/lib/activity';
 import { useState } from 'react';
 import { toast } from 'sonner';
+import type { PostgrestError } from '@supabase/supabase-js';
+
+function emptyToNull(value: string): string | null {
+  const t = value.trim();
+  return t === '' ? null : t;
+}
+
+function clientInsertPayload(
+  formData: ClientFormData,
+  tenantId: string,
+  userId: string
+) {
+  return {
+    business_name: formData.business_name.trim(),
+    industry: formData.industry.trim(),
+    contact_first_name: emptyToNull(formData.contact_first_name),
+    contact_last_name: emptyToNull(formData.contact_last_name),
+    phone: emptyToNull(formData.phone),
+    email: emptyToNull(formData.email),
+    disc_profile: emptyToNull(formData.disc_profile),
+    notes: emptyToNull(formData.notes),
+    tenant_id: tenantId,
+    status: 'lead' as const,
+    created_by: userId
+  };
+}
+
+function errorMessage(error: unknown): string {
+  if (error && typeof error === 'object' && 'message' in error) {
+    const msg = (error as PostgrestError).message;
+    if (typeof msg === 'string' && msg) return msg;
+  }
+  if (error instanceof Error) return error.message;
+  return 'Error al guardar el cliente';
+}
 
 export type ClientFormData = {
   business_name: string;
@@ -111,12 +146,7 @@ export default function ClientForm({
       } else {
         const { data, error } = await supabase
           .from('clients')
-          .insert({
-            ...formData,
-            tenant_id: tenantId,
-            status: 'lead',
-            created_by: user.id
-          })
+          .insert(clientInsertPayload(formData, tenantId, user.id))
           .select()
           .single();
 
@@ -137,7 +167,7 @@ export default function ClientForm({
       }
     } catch (error: unknown) {
       console.error('Error saving client:', error);
-      toast.error('Error al guardar el cliente');
+      toast.error(errorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -258,7 +288,7 @@ export default function ClientForm({
         </div>
       </div>
 
-      <div className='flex gap-2 justify-end'>
+      <div className='flex justify-end gap-2'>
         {onCancel && (
           <Button type='button' variant='outline' onClick={onCancel}>
             Cancelar

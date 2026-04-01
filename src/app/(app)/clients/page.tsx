@@ -117,7 +117,20 @@ export default function ClientsPage() {
       pageTitle='Clientes'
       pageDescription='Gestiona todos los clientes de C3 Local Marketing'
       pageHeaderAction={
-        <Button onClick={() => setShowNewClientDialog(true)}>
+        <Button
+          disabled={userLoading || !tenantId}
+          title={
+            !tenantId && !userLoading
+              ? 'Asigna tenant_id a tu usuario en Supabase para crear clientes'
+              : undefined
+          }
+          onClick={() => {
+            if (!tenantId) {
+              return;
+            }
+            setShowNewClientDialog(true);
+          }}
+        >
           <Icons.add className='mr-2 h-4 w-4' />
           Nuevo Cliente
         </Button>
@@ -126,8 +139,8 @@ export default function ClientsPage() {
       <div className='flex flex-1 flex-col gap-4 p-4 md:px-6'>
         {!userLoading && !tenantId ? (
           <p className='text-destructive text-sm'>
-            No hay organización asociada a tu perfil. No se listan clientes hasta que un administrador
-            complete tu usuario en la base de datos.
+            No hay organización asociada a tu perfil. No se listan clientes
+            hasta que un administrador complete tu usuario en la base de datos.
           </p>
         ) : null}
         {/* Filters */}
@@ -186,7 +199,7 @@ export default function ClientsPage() {
                 filteredClients.map((client) => (
                   <TableRow
                     key={client.id}
-                    className='cursor-pointer hover:bg-muted/50'
+                    className='hover:bg-muted/50 cursor-pointer'
                     onClick={() => router.push(`/clients/${client.id}`)}
                   >
                     <TableCell className='font-medium'>
@@ -199,19 +212,17 @@ export default function ClientsPage() {
                     <TableCell>{client.phone || '—'}</TableCell>
                     <TableCell>
                       <Badge
-                        variant={
-                          STATUS_VARIANTS[client.status] || 'secondary'
-                        }
+                        variant={STATUS_VARIANTS[client.status] || 'secondary'}
                       >
                         {STATUS_LABELS[client.status] || client.status}
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <span className='capitalize text-sm text-muted-foreground'>
+                      <span className='text-muted-foreground text-sm capitalize'>
                         {client.tier?.replace(/_/g, ' ') || '—'}
                       </span>
                     </TableCell>
-                    <TableCell className='text-sm text-muted-foreground'>
+                    <TableCell className='text-muted-foreground text-sm'>
                       {new Date(client.created_at).toLocaleDateString('es-MX')}
                     </TableCell>
                   </TableRow>
@@ -223,10 +234,7 @@ export default function ClientsPage() {
       </div>
 
       {/* New Client Dialog */}
-      <Dialog
-        open={showNewClientDialog}
-        onOpenChange={setShowNewClientDialog}
-      >
+      <Dialog open={showNewClientDialog} onOpenChange={setShowNewClientDialog}>
         <DialogContent className='max-w-2xl'>
           <DialogHeader>
             <DialogTitle>Nuevo Cliente</DialogTitle>
