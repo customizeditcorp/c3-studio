@@ -58,6 +58,13 @@ function GeneratedAt({ date }: { date: string }) {
   );
 }
 
+function extractText(content: unknown): string {
+  if (typeof content === 'object' && content !== null) {
+    return (content as any).raw_text || JSON.stringify(content, null, 2);
+  }
+  return String(content || '');
+}
+
 export default function BriefPage() {
   const params = useParams<{ clientId: string | string[] }>();
   const clientId =
@@ -90,11 +97,28 @@ export default function BriefPage() {
   const [generatingOfv, setGeneratingOfv] = useState(false);
   const [approvingOfv, setApprovingOfv] = useState(false);
 
+  // Editable text state for each content type
+  const [briefText, setBriefText] = useState('');
+  const [personaText, setPersonaText] = useState('');
+  const [ofvText, setOfvText] = useState('');
+
   useEffect(() => {
     if (!userLoading && tenantId && clientId) {
       void loadData();
     }
   }, [tenantId, userLoading, clientId]);
+
+  useEffect(() => {
+    if (brief) setBriefText(extractText(brief.content));
+  }, [brief]);
+
+  useEffect(() => {
+    if (persona) setPersonaText(extractText(persona.content));
+  }, [persona]);
+
+  useEffect(() => {
+    if (ofv) setOfvText(extractText(ofv.content));
+  }, [ofv]);
 
   const loadData = async () => {
     // Load client
@@ -167,7 +191,11 @@ export default function BriefPage() {
     }
     setGeneratingBrief(true);
     try {
-      const result = await generateContent({ step: 'brief', clientId });
+      const result = await generateContent({
+        step: 'brief',
+        clientId,
+        inputData: briefText ? { previous_version: briefText } : undefined
+      });
       const fallbackText = textFromGenerateContentResult(result);
       const fallbackId = result.saved?.id ? String(result.saved.id) : 'temp';
 
@@ -259,7 +287,11 @@ export default function BriefPage() {
     }
     setGeneratingPersona(true);
     try {
-      const result = await generateContent({ step: 'buyer_persona', clientId });
+      const result = await generateContent({
+        step: 'buyer_persona',
+        clientId,
+        inputData: personaText ? { previous_version: personaText } : undefined
+      });
       const fallbackText = textFromGenerateContentResult(result);
       const fallbackId = result.saved?.id ? String(result.saved.id) : 'temp';
 
@@ -350,7 +382,11 @@ export default function BriefPage() {
     }
     setGeneratingOfv(true);
     try {
-      const result = await generateContent({ step: 'ofv', clientId });
+      const result = await generateContent({
+        step: 'ofv',
+        clientId,
+        inputData: ofvText ? { previous_version: ofvText } : undefined
+      });
       const fallbackText = textFromGenerateContentResult(result);
       const fallbackId = result.saved?.id ? String(result.saved.id) : 'temp';
       const contentObj =
@@ -519,14 +555,8 @@ export default function BriefPage() {
                       )}
                     </div>
                     <Textarea
-                      value={
-                        typeof brief.content === 'object' &&
-                        brief.content !== null
-                          ? (brief.content as any).raw_text ||
-                            JSON.stringify(brief.content, null, 2)
-                          : String(brief.content || '')
-                      }
-                      // readOnly
+                      value={briefText}
+                      onChange={(e) => setBriefText(e.target.value)}
                       rows={24}
                       className='bg-muted/30 resize-none font-mono text-xs'
                     />
@@ -622,14 +652,8 @@ export default function BriefPage() {
                       )}
                     </div>
                     <Textarea
-                      value={
-                        typeof persona.content === 'object' &&
-                        persona.content !== null
-                          ? (persona.content as any).raw_text ||
-                            JSON.stringify(persona.content, null, 2)
-                          : String(persona.content || '')
-                      }
-                      // readOnly
+                      value={personaText}
+                      onChange={(e) => setPersonaText(e.target.value)}
                       rows={24}
                       className='bg-muted/30 resize-none font-mono text-xs'
                     />
@@ -767,14 +791,8 @@ export default function BriefPage() {
                       </div>
                     ) : (
                       <Textarea
-                        value={
-                          typeof ofv.content === 'object' &&
-                          ofv.content !== null
-                            ? (ofv.content as any).raw_text ||
-                              JSON.stringify(ofv.content, null, 2)
-                            : String(ofv.content || '')
-                        }
-                        // readOnly
+                        value={ofvText}
+                        onChange={(e) => setOfvText(e.target.value)}
                         rows={20}
                         className='bg-muted/30 resize-none font-mono text-xs'
                       />
