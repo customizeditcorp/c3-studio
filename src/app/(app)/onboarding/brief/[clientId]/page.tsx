@@ -126,7 +126,6 @@ export default function BriefPage() {
       .from('clients')
       .select('id, business_name, industry')
       .eq('id', clientId)
-      .eq('tenant_id', tenantId)
       .single();
     if (clientData) setClient(clientData);
 
