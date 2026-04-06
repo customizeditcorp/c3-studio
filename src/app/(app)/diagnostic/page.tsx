@@ -233,17 +233,28 @@ export default function DiagnosticPage() {
   const [generatingPreview, setGeneratingPreview] = useState(false);
 
   useEffect(() => {
-    if (!userLoading && tenantId) {
-      supabase
-        .from('clients')
-        .select('id, business_name')
-        .eq('tenant_id', tenantId)
-        .order('business_name')
-        .then(({ data }) => {
-          if (data) setExistingClients(data);
-        });
-    }
-  }, [tenantId, userLoading]);
+    if (!tenantId || userLoading) return;
+
+    supabase
+      .from('clients')
+      .select('id, business_name')
+      .eq('tenant_id', tenantId)
+      .order('business_name')
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Error loading clients for diagnostic:', error);
+          return;
+        }
+        if (!data || data.length === 0) {
+          console.warn('Diagnostic clients query returned empty set', {
+            tenantId
+          });
+          setExistingClients([]);
+          return;
+        }
+        setExistingClients(data);
+      });
+  }, [tenantId, userLoading, supabase]);
 
   // Calculate tier using all signals: revenue + google presence + digital health
   const tierResult =
