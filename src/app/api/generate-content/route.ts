@@ -269,6 +269,7 @@ export async function POST(request: NextRequest) {
         const table = tableMap[step];
         const insertData: Record<string, unknown> = {
           client_id,
+          tenant_id: client.tenant_id,
           prompt_version_id: prompt.id,
           content: parsedContent,
           raw_text: rawText,
