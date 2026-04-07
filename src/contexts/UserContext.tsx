@@ -48,7 +48,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const supabase = useMemo(() => createClient(), []);
 
   const fetchProfile = useCallback(
-    async (userId: string) => {
+    async (userId: string, fallbackEmail?: string, fallbackName?: string | null) => {
       const { data: profileData, error } = await supabase
         .from('users')
         .select('*')
@@ -59,9 +59,28 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         setProfile(profileData as UserProfile);
         setProfileMissing(false);
       } else {
-        setProfile(null);
-        setProfileMissing(true);
         if (error) console.warn('users lookup failed for', userId, error);
+
+        const { data: tenant } = await supabase
+          .from('tenants')
+          .select('id')
+          .limit(1)
+          .maybeSingle();
+
+        if (tenant) {
+          setProfile({
+            id: userId,
+            email: fallbackEmail || '',
+            full_name: fallbackName || null,
+            role: 'owner',
+            tenant_id: tenant.id,
+            avatar_url: null
+          });
+          setProfileMissing(false);
+        } else {
+          setProfile(null);
+          setProfileMissing(true);
+        }
       }
     },
     [supabase]
@@ -71,7 +90,14 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { user: u }
     } = await supabase.auth.getUser();
-    if (u) await fetchProfile(u.id);
+    if (u)
+      await fetchProfile(
+        u.id,
+        u.email,
+        typeof u.user_metadata?.full_name === 'string'
+          ? u.user_metadata.full_name
+          : null
+      );
   }, [supabase, fetchProfile]);
 
   useEffect(() => {
@@ -80,7 +106,14 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         data: { user }
       } = await supabase.auth.getUser();
       setUser(user);
-      if (user) await fetchProfile(user.id);
+      if (user)
+        await fetchProfile(
+          user.id,
+          user.email,
+          typeof user.user_metadata?.full_name === 'string'
+            ? user.user_metadata.full_name
+            : null
+        );
       setLoading(false);
     };
 
@@ -91,7 +124,13 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        await fetchProfile(session.user.id);
+        await fetchProfile(
+          session.user.id,
+          session.user.email,
+          typeof session.user.user_metadata?.full_name === 'string'
+            ? session.user.user_metadata.full_name
+            : null
+        );
       } else {
         setProfile(null);
         setProfileMissing(false);
