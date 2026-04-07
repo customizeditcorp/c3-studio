@@ -30,7 +30,6 @@ import {
 } from '@/components/ui/sidebar';
 import { navGroups } from '@/config/nav-config';
 import { useUser } from '@/contexts/UserContext';
-import { useMediaQuery } from '@/hooks/use-media-query';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import * as React from 'react';
@@ -39,18 +38,11 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
 export default function AppSidebar() {
   const pathname = usePathname();
-  const { isOpen } = useMediaQuery();
   const { profile, signOut } = useUser();
   const router = useRouter();
 
-  React.useEffect(() => {
-    // Side effects based on sidebar state changes
-  }, [isOpen]);
-
   const handleSignOut = async () => {
     await signOut();
-    router.replace('/login');
-    router.refresh();
     window.location.href = '/login';
   };
 
@@ -61,12 +53,12 @@ export default function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton size='lg' asChild>
               <Link href='/dashboard/overview'>
-                <div className='flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground'>
+                <div className='bg-primary text-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg'>
                   <span className='text-xs font-bold'>C3</span>
                 </div>
                 <div className='grid flex-1 text-left text-sm leading-tight'>
                   <span className='truncate font-semibold'>C3 Studio</span>
-                  <span className='truncate text-xs text-muted-foreground'>
+                  <span className='text-muted-foreground truncate text-xs'>
                     C3 Local Marketing
                   </span>
                 </div>

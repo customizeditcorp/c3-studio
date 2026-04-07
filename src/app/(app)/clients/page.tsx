@@ -28,8 +28,9 @@ import {
 import ClientForm from '@/components/clients/ClientForm';
 import { useUser } from '@/contexts/UserContext';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import { Icons } from '@/components/icons';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -66,7 +67,7 @@ type Client = {
 
 export default function ClientsPage() {
   const { tenantId, loading: userLoading } = useUser();
-  const supabase = createSupabaseClient();
+  const supabase = useMemo(() => createSupabaseClient(), []);
   const router = useRouter();
 
   const [clients, setClients] = useState<Client[]>([]);
@@ -75,35 +76,56 @@ export default function ClientsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [showNewClientDialog, setShowNewClientDialog] = useState(false);
 
-  const fetchClients = async () => {
-    if (!tenantId) {
-      setClients([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    let query = supabase
-      .from('clients')
-      .select(
-        'id, business_name, industry, contact_first_name, phone, status, tier, created_at'
-      )
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
+  const fetchClients = useCallback(
+    async (cancelled: { current: boolean }) => {
+      if (!tenantId) {
+        if (!cancelled.current) {
+          setClients([]);
+          setLoading(false);
+        }
+        return;
+      }
+      if (!cancelled.current) setLoading(true);
+      try {
+        let query = supabase
+          .from('clients')
+          .select(
+            'id, business_name, industry, contact_first_name, phone, status, tier, created_at'
+          )
+          .eq('tenant_id', tenantId)
+          .order('created_at', { ascending: false });
 
-    if (statusFilter !== 'all') {
-      query = query.eq('status', statusFilter);
-    }
+        if (statusFilter !== 'all') {
+          query = query.eq('status', statusFilter);
+        }
 
-    const { data, error } = await query;
-    if (error) console.error('Error fetching clients:', error);
-    if (data) setClients(data);
-    setLoading(false);
-  };
+        const { data, error } = await query;
+        if (cancelled.current) return;
+        if (error) {
+          console.error('Error fetching clients:', error);
+          toast.error('Error al cargar clientes');
+        }
+        if (data) setClients(data);
+      } catch (err) {
+        if (!cancelled.current) {
+          console.error('Error fetching clients:', err);
+          toast.error('Error al cargar clientes');
+        }
+      } finally {
+        if (!cancelled.current) setLoading(false);
+      }
+    },
+    [supabase, tenantId, statusFilter]
+  );
 
   useEffect(() => {
     if (userLoading) return;
-    void fetchClients();
-  }, [tenantId, userLoading, statusFilter]);
+    const cancelled = { current: false };
+    void fetchClients(cancelled);
+    return () => {
+      cancelled.current = true;
+    };
+  }, [userLoading, fetchClients]);
 
   const filteredClients = clients.filter(
     (c) =>
@@ -242,7 +264,7 @@ export default function ClientsPage() {
           <ClientForm
             onSuccess={(clientId) => {
               setShowNewClientDialog(false);
-              fetchClients();
+              void fetchClients({ current: false });
               router.push(`/clients/${clientId}`);
             }}
             onCancel={() => setShowNewClientDialog(false)}

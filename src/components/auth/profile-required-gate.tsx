@@ -20,8 +20,13 @@ export default function ProfileRequiredGate({
 
   const handleBootstrap = async () => {
     setBootstrapLoading(true);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
     try {
-      const res = await fetch('/api/profile/bootstrap', { method: 'POST' });
+      const res = await fetch('/api/profile/bootstrap', {
+        method: 'POST',
+        signal: controller.signal
+      });
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
         toast.error(body.error ?? 'No se pudo vincular el perfil');
@@ -29,12 +34,27 @@ export default function ProfileRequiredGate({
       }
       toast.success('Perfil vinculado. Entrando…');
       await refreshProfile();
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') {
+        toast.error('La vinculación tardó demasiado. Intenta de nuevo.');
+      } else {
+        toast.error('Error al vincular el perfil');
+      }
     } finally {
+      clearTimeout(timeout);
       setBootstrapLoading(false);
     }
   };
 
-  if (!loading && needsOrg) {
+  if (loading) {
+    return (
+      <div className='flex min-h-[60vh] items-center justify-center'>
+        <div className='text-muted-foreground text-sm'>Cargando sesión…</div>
+      </div>
+    );
+  }
+
+  if (needsOrg) {
     return (
       <div className='flex min-h-[60vh] flex-col items-center justify-center gap-4 p-8 text-center'>
         <div className='max-w-md space-y-2'>

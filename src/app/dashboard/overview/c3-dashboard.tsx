@@ -6,8 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import PageContainer from '@/components/layout/page-container';
 import { useUser } from '@/contexts/UserContext';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 
 type Metrics = {
   totalClients: number;
@@ -59,7 +60,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default function C3Dashboard() {
   const { tenantId, profile, loading: userLoading } = useUser();
-  const supabase = createSupabaseClient();
+  const supabase = useMemo(() => createSupabaseClient(), []);
 
   const [metrics, setMetrics] = useState<Metrics>({
     totalClients: 0,
@@ -69,82 +70,111 @@ export default function C3Dashboard() {
     clientsByStatus: {}
   });
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
-  const [approvedPreviews, setApprovedPreviews] = useState<ApprovedPreview[]>([]);
+  const [approvedPreviews, setApprovedPreviews] = useState<ApprovedPreview[]>(
+    []
+  );
   const [loading, setLoading] = useState(true);
 
+  const loadDashboard = useCallback(
+    async (cancelled: { current: boolean }) => {
+      try {
+        const { data: clients } = await supabase
+          .from('clients')
+          .select('id, status')
+          .eq('tenant_id', tenantId!);
+
+        if (cancelled.current) return;
+
+        const clientIds = clients?.map((c) => c.id) ?? [];
+
+        const clientsByStatus: Record<string, number> = {};
+        let totalClients = 0;
+        let activeClients = 0;
+        let pendingOnboardings = 0;
+
+        clients?.forEach((c) => {
+          clientsByStatus[c.status] = (clientsByStatus[c.status] || 0) + 1;
+          totalClients++;
+          if (c.status === 'active') activeClients++;
+          if (c.status === 'onboarding') pendingOnboardings++;
+        });
+
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        startOfMonth.setHours(0, 0, 0, 0);
+
+        let diagCount = 0;
+        if (clientIds.length > 0) {
+          const { count } = await supabase
+            .from('diagnostics')
+            .select('id', { count: 'exact', head: true })
+            .in('client_id', clientIds)
+            .gte('created_at', startOfMonth.toISOString());
+          diagCount = count ?? 0;
+        }
+
+        if (cancelled.current) return;
+
+        const { data: activity } = await supabase
+          .from('activity_log')
+          .select('*')
+          .eq('tenant_id', tenantId!)
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        if (cancelled.current) return;
+
+        setMetrics({
+          totalClients,
+          activeClients,
+          pendingOnboardings,
+          diagnosticsThisMonth: diagCount,
+          clientsByStatus
+        });
+
+        setActivityLog(activity || []);
+
+        let approvedPreviewsData = null;
+        if (clientIds.length > 0) {
+          const { data } = await supabase
+            .from('previews')
+            .select('id, client_id, approved_at, clients(business_name)')
+            .eq('approved', true)
+            .in('client_id', clientIds)
+            .gte(
+              'approved_at',
+              new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+            )
+            .order('approved_at', { ascending: false })
+            .limit(5);
+          approvedPreviewsData = data;
+        }
+
+        if (cancelled.current) return;
+
+        setApprovedPreviews(
+          (approvedPreviewsData as unknown as ApprovedPreview[]) || []
+        );
+      } catch (err) {
+        if (!cancelled.current) {
+          console.error('Error loading dashboard:', err);
+          toast.error('Error al cargar el dashboard');
+        }
+      } finally {
+        if (!cancelled.current) setLoading(false);
+      }
+    },
+    [supabase, tenantId]
+  );
+
   useEffect(() => {
-    if (!userLoading && tenantId) {
-      loadDashboard();
-    }
-  }, [tenantId, userLoading]);
-
-  const loadDashboard = async () => {
-    const { data: clients } = await supabase
-      .from('clients')
-      .select('id, status')
-      .eq('tenant_id', tenantId);
-
-    const clientIds = clients?.map((c) => c.id) ?? [];
-
-    const clientsByStatus: Record<string, number> = {};
-    let totalClients = 0;
-    let activeClients = 0;
-    let pendingOnboardings = 0;
-
-    clients?.forEach((c) => {
-      clientsByStatus[c.status] = (clientsByStatus[c.status] || 0) + 1;
-      totalClients++;
-      if (c.status === 'active') activeClients++;
-      if (c.status === 'onboarding') pendingOnboardings++;
-    });
-
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
-
-    let diagCount = 0;
-    if (clientIds.length > 0) {
-      const { count } = await supabase
-        .from('diagnostics')
-        .select('id', { count: 'exact', head: true })
-        .in('client_id', clientIds)
-        .gte('created_at', startOfMonth.toISOString());
-      diagCount = count ?? 0;
-    }
-
-    const { data: activity } = await supabase
-      .from('activity_log')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false })
-      .limit(10);
-
-    setMetrics({
-      totalClients,
-      activeClients,
-      pendingOnboardings,
-      diagnosticsThisMonth: diagCount,
-      clientsByStatus
-    });
-
-    setActivityLog(activity || []);
-
-    let approvedPreviewsData = null;
-    if (clientIds.length > 0) {
-      const { data } = await supabase
-        .from('previews')
-        .select('id, client_id, approved_at, clients(business_name)')
-        .eq('approved', true)
-        .in('client_id', clientIds)
-        .gte('approved_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
-        .order('approved_at', { ascending: false })
-        .limit(5);
-      approvedPreviewsData = data;
-    }
-
-    setApprovedPreviews((approvedPreviewsData as unknown as ApprovedPreview[]) || []);
-    setLoading(false);
-  };
+    if (userLoading || !tenantId) return;
+    const cancelled = { current: false };
+    void loadDashboard(cancelled);
+    return () => {
+      cancelled.current = true;
+    };
+  }, [userLoading, tenantId, loadDashboard]);
 
   const firstName = profile?.full_name?.split(' ')[0] || 'Carlos';
 
@@ -158,7 +188,7 @@ export default function C3Dashboard() {
         <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-4'>
           <Card>
             <CardHeader className='pb-2'>
-              <CardTitle className='text-sm font-medium text-muted-foreground'>
+              <CardTitle className='text-muted-foreground text-sm font-medium'>
                 Total Clientes
               </CardTitle>
             </CardHeader>
@@ -166,7 +196,7 @@ export default function C3Dashboard() {
               <p className='text-3xl font-bold'>
                 {loading ? '—' : metrics.totalClients}
               </p>
-              <p className='text-xs text-muted-foreground mt-1'>
+              <p className='text-muted-foreground mt-1 text-xs'>
                 en todos los estados
               </p>
             </CardContent>
@@ -174,15 +204,15 @@ export default function C3Dashboard() {
 
           <Card>
             <CardHeader className='pb-2'>
-              <CardTitle className='text-sm font-medium text-muted-foreground'>
+              <CardTitle className='text-muted-foreground text-sm font-medium'>
                 Clientes Activos
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className='text-3xl font-bold text-primary'>
+              <p className='text-primary text-3xl font-bold'>
                 {loading ? '—' : metrics.activeClients}
               </p>
-              <p className='text-xs text-muted-foreground mt-1'>
+              <p className='text-muted-foreground mt-1 text-xs'>
                 facturando actualmente
               </p>
             </CardContent>
@@ -190,7 +220,7 @@ export default function C3Dashboard() {
 
           <Card>
             <CardHeader className='pb-2'>
-              <CardTitle className='text-sm font-medium text-muted-foreground'>
+              <CardTitle className='text-muted-foreground text-sm font-medium'>
                 Diagnósticos (mes)
               </CardTitle>
             </CardHeader>
@@ -198,23 +228,21 @@ export default function C3Dashboard() {
               <p className='text-3xl font-bold'>
                 {loading ? '—' : metrics.diagnosticsThisMonth}
               </p>
-              <p className='text-xs text-muted-foreground mt-1'>
-                este mes
-              </p>
+              <p className='text-muted-foreground mt-1 text-xs'>este mes</p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className='pb-2'>
-              <CardTitle className='text-sm font-medium text-muted-foreground'>
+              <CardTitle className='text-muted-foreground text-sm font-medium'>
                 En Onboarding
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className='text-3xl font-bold text-secondary-foreground'>
+              <p className='text-secondary-foreground text-3xl font-bold'>
                 {loading ? '—' : metrics.pendingOnboardings}
               </p>
-              <p className='text-xs text-muted-foreground mt-1'>
+              <p className='text-muted-foreground mt-1 text-xs'>
                 pendientes de completar
               </p>
             </CardContent>
@@ -226,17 +254,29 @@ export default function C3Dashboard() {
           <Card className='border-green-300 bg-green-50'>
             <CardHeader className='pb-2'>
               <CardTitle className='text-base text-green-800'>
-                ✅ {approvedPreviews.length} preview{approvedPreviews.length > 1 ? 's' : ''} aprobado{approvedPreviews.length > 1 ? 's' : ''} esta semana
+                ✅ {approvedPreviews.length} preview
+                {approvedPreviews.length > 1 ? 's' : ''} aprobado
+                {approvedPreviews.length > 1 ? 's' : ''} esta semana
               </CardTitle>
             </CardHeader>
             <CardContent>
               <ul className='space-y-1'>
                 {approvedPreviews.map((p) => (
-                  <li key={p.id} className='flex items-center justify-between text-sm'>
-                    <span className='font-medium text-green-900'>{p.clients?.business_name || 'Cliente'}</span>
+                  <li
+                    key={p.id}
+                    className='flex items-center justify-between text-sm'
+                  >
+                    <span className='font-medium text-green-900'>
+                      {p.clients?.business_name || 'Cliente'}
+                    </span>
                     <span className='text-xs text-green-600'>
                       {p.approved_at
-                        ? new Date(p.approved_at).toLocaleString('es-MX', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                        ? new Date(p.approved_at).toLocaleString('es-MX', {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })
                         : ''}
                     </span>
                   </li>
@@ -259,11 +299,7 @@ export default function C3Dashboard() {
                 <div className='space-y-2'>
                   {Object.entries(STATUS_LABELS).map(([status, label]) => {
                     const count = metrics.clientsByStatus[status] || 0;
-                    if (
-                      count === 0 &&
-                      status !== 'lead' &&
-                      status !== 'active'
-                    )
+                    if (count === 0 && status !== 'lead' && status !== 'active')
                       return null;
                     return (
                       <div
@@ -310,7 +346,7 @@ export default function C3Dashboard() {
                         <p className='text-sm'>
                           {ACTION_LABELS[entry.action] || entry.action}
                         </p>
-                        <p className='text-xs text-muted-foreground'>
+                        <p className='text-muted-foreground text-xs'>
                           {new Date(entry.created_at).toLocaleString('es-MX', {
                             month: 'short',
                             day: 'numeric',

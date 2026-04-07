@@ -19,8 +19,6 @@ export function UserNav() {
 
   const handleSignOut = async () => {
     await signOut();
-    router.replace('/login');
-    router.refresh();
     window.location.href = '/login';
   };
 
