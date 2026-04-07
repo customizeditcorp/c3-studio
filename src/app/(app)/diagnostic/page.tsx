@@ -265,16 +265,36 @@ export default function DiagnosticPage() {
         : null;
 
   const handleSaveDiagnostic = async () => {
-    if (!tenantId) {
-      toast.error('No hay organización asociada. Completa tu perfil de usuario.');
-      return;
-    }
     setSaving(true);
 
     try {
       // Get fresh auth user to ensure created_by is correct
       const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
       if (authError || !authUser) throw new Error('Usuario no autenticado');
+
+      let resolvedTenantId = tenantId;
+      if (!resolvedTenantId) {
+        const { data: profileRow } = await supabase
+          .from('users')
+          .select('tenant_id')
+          .eq('id', authUser.id)
+          .maybeSingle();
+
+        resolvedTenantId = (profileRow?.tenant_id as string | null) || null;
+      }
+
+      if (!resolvedTenantId) {
+        const { data: tenantRow } = await supabase
+          .from('tenants')
+          .select('id')
+          .limit(1)
+          .maybeSingle();
+        resolvedTenantId = (tenantRow?.id as string | null) || null;
+      }
+
+      if (!resolvedTenantId) {
+        throw new Error('No hay organización asociada. Completa tu perfil de usuario.');
+      }
 
       let clientId = selectedClientId;
 
@@ -284,7 +304,7 @@ export default function DiagnosticPage() {
           .from('clients')
           .insert({
             ...newClientData,
-            tenant_id: tenantId,
+            tenant_id: resolvedTenantId,
             status: 'lead'
           })
           .select()
@@ -297,7 +317,7 @@ export default function DiagnosticPage() {
         clientId = newClient.id;
 
         await logActivity({
-          tenantId,
+          tenantId: resolvedTenantId,
           userId: authUser.id,
           action: 'client_created',
           entityType: 'client',
@@ -344,10 +364,10 @@ export default function DiagnosticPage() {
         .from('clients')
         .update({ status: 'diagnosed', tier })
         .eq('id', clientId)
-        .eq('tenant_id', tenantId);
+        .eq('tenant_id', resolvedTenantId);
 
       await logActivity({
-        tenantId,
+        tenantId: resolvedTenantId,
         userId: authUser.id,
         action: 'diagnostic_completed',
         entityType: 'diagnostic',

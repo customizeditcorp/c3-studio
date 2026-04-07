@@ -49,7 +49,9 @@ export default function AppSidebar() {
 
   const handleSignOut = async () => {
     await signOut();
-    router.push('/login');
+    router.replace('/login');
+    router.refresh();
+    window.location.href = '/login';
   };
 
   return (

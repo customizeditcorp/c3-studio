@@ -71,7 +71,10 @@ export default function ProfileRequiredGate({
           <Button
             type='button'
             variant='outline'
-            onClick={() => void signOut()}
+            onClick={async () => {
+              await signOut();
+              window.location.href = '/login';
+            }}
           >
             Cerrar sesión
           </Button>
