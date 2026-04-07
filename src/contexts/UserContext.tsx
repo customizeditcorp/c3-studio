@@ -48,7 +48,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const supabase = useMemo(() => createClient(), []);
 
   const fetchProfile = useCallback(
-    async (userId: string, fallbackEmail?: string, fallbackName?: string | null) => {
+    async (
+      userId: string,
+      fallbackEmail?: string,
+      fallbackName?: string | null
+    ) => {
       const { data: profileData, error } = await supabase
         .from('users')
         .select('*')
@@ -101,23 +105,40 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   }, [supabase, fetchProfile]);
 
   useEffect(() => {
+    let didFinish = false;
+
     const getUser = async () => {
-      const {
-        data: { user }
-      } = await supabase.auth.getUser();
-      setUser(user);
-      if (user)
-        await fetchProfile(
-          user.id,
-          user.email,
-          typeof user.user_metadata?.full_name === 'string'
-            ? user.user_metadata.full_name
-            : null
-        );
-      setLoading(false);
+      try {
+        const {
+          data: { user }
+        } = await supabase.auth.getUser();
+        didFinish = true;
+        setUser(user);
+        if (user)
+          await fetchProfile(
+            user.id,
+            user.email,
+            typeof user.user_metadata?.full_name === 'string'
+              ? user.user_metadata.full_name
+              : null
+          );
+      } catch (err) {
+        console.error('Auth check failed:', err);
+      } finally {
+        didFinish = true;
+        setLoading(false);
+      }
     };
 
     void getUser();
+
+    // Safety timeout: if auth check hangs for 8s, unblock the UI
+    const timeout = setTimeout(() => {
+      if (!didFinish) {
+        console.warn('Auth check timed out after 8s — unblocking UI');
+        setLoading(false);
+      }
+    }, 8000);
 
     const {
       data: { subscription }
@@ -138,7 +159,10 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      clearTimeout(timeout);
+      subscription.unsubscribe();
+    };
   }, [fetchProfile, supabase]);
 
   const signOut = async () => {
