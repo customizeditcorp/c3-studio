@@ -142,10 +142,15 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   }, [fetchProfile, supabase]);
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-    setProfile(null);
-    setProfileMissing(false);
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) console.error('Error signing out:', error);
+    } finally {
+      setUser(null);
+      setProfile(null);
+      setProfileMissing(false);
+      setLoading(false);
+    }
   };
 
   return (
