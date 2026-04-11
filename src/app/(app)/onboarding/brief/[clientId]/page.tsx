@@ -18,7 +18,8 @@ import { Icons } from '@/components/icons';
 
 type ContentRecord = {
   id: string;
-  content: string;
+  content: unknown;
+  raw_text?: string | null;
   status: string;
   created_at: string;
   tokens_used?: number | null;
@@ -27,6 +28,7 @@ type ContentRecord = {
 type OFVData = {
   big_promise?: string;
   vehicle_name?: string;
+  vehicle_description?: string;
   quick_win?: string;
   guarantee?: string;
   [key: string]: string | undefined;
@@ -58,11 +60,41 @@ function GeneratedAt({ date }: { date: string }) {
   );
 }
 
-function extractText(content: unknown): string {
-  if (typeof content === 'object' && content !== null) {
-    return (content as any).raw_text || JSON.stringify(content, null, 2);
+function extractText(content: unknown, rawText?: string | null): string {
+  if (typeof rawText === 'string' && rawText.trim()) {
+    return rawText.trim();
   }
+
+  if (typeof content === 'object' && content !== null) {
+    const contentRecord = content as Record<string, unknown>;
+    if (
+      typeof contentRecord.raw_text === 'string' &&
+      contentRecord.raw_text.trim()
+    ) {
+      return contentRecord.raw_text.trim();
+    }
+    return JSON.stringify(content, null, 2);
+  }
+
   return String(content || '');
+}
+
+function parseOfvData(content: unknown): OFVData | null {
+  if (!content) return null;
+
+  if (typeof content === 'string') {
+    try {
+      return parseOfvData(JSON.parse(content));
+    } catch {
+      return { raw: content };
+    }
+  }
+
+  if (typeof content === 'object') {
+    return content as OFVData;
+  }
+
+  return null;
 }
 
 export default function BriefPage() {
@@ -109,15 +141,15 @@ export default function BriefPage() {
   }, [tenantId, userLoading, clientId]);
 
   useEffect(() => {
-    if (brief) setBriefText(extractText(brief.content));
+    if (brief) setBriefText(extractText(brief.content, brief.raw_text));
   }, [brief]);
 
   useEffect(() => {
-    if (persona) setPersonaText(extractText(persona.content));
+    if (persona) setPersonaText(extractText(persona.content, persona.raw_text));
   }, [persona]);
 
   useEffect(() => {
-    if (ofv) setOfvText(extractText(ofv.content));
+    if (ofv) setOfvText(extractText(ofv.content, ofv.raw_text));
   }, [ofv]);
 
   const loadData = async () => {
@@ -132,7 +164,7 @@ export default function BriefPage() {
     // Load latest brief
     const { data: briefData } = await supabase
       .from('briefs')
-      .select('id, content, status, created_at, tokens_used')
+      .select('id, content, raw_text, status, created_at, tokens_used')
       .eq('client_id', clientId)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -142,7 +174,7 @@ export default function BriefPage() {
     // Load latest persona
     const { data: personaData } = await supabase
       .from('buyer_personas')
-      .select('id, content, status, created_at, tokens_used')
+      .select('id, content, raw_text, status, created_at, tokens_used')
       .eq('client_id', clientId)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -152,21 +184,14 @@ export default function BriefPage() {
     // Load latest offer/OFV
     const { data: ofvDbData } = await supabase
       .from('offers')
-      .select('id, content, status, created_at, tokens_used')
+      .select('id, content, raw_text, status, created_at, tokens_used')
       .eq('client_id', clientId)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
     if (ofvDbData) {
       setOfv(ofvDbData);
-      if (ofvDbData.content) {
-        try {
-          const parsed = JSON.parse(ofvDbData.content);
-          setOfvData(parsed);
-        } catch {
-          setOfvData({ raw: ofvDbData.content });
-        }
-      }
+      setOfvData(parseOfvData(ofvDbData.content));
     }
 
     setLoading(false);
@@ -201,7 +226,7 @@ export default function BriefPage() {
       // Re-fetch latest brief from DB after generation
       const { data: newBrief } = await supabase
         .from('briefs')
-        .select('id, content, status, created_at, tokens_used')
+        .select('id, content, raw_text, status, created_at, tokens_used')
         .eq('client_id', clientId)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -213,6 +238,7 @@ export default function BriefPage() {
         setBrief({
           id: fallbackId,
           content: fallbackText,
+          raw_text: fallbackText,
           status: 'draft',
           created_at: new Date().toISOString(),
           tokens_used: undefined
@@ -395,7 +421,7 @@ export default function BriefPage() {
 
       const { data: newOfv } = await supabase
         .from('offers')
-        .select('id, content, status, created_at, tokens_used')
+        .select('id, content, raw_text, status, created_at, tokens_used')
         .eq('client_id', clientId)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -403,34 +429,18 @@ export default function BriefPage() {
 
       if (newOfv) {
         setOfv(newOfv);
-        if (newOfv.content) {
-          try {
-            const c = newOfv.content;
-            setOfvData(typeof c === 'string' ? JSON.parse(c) : (c as OFVData));
-          } catch {
-            setOfvData({ raw: String(newOfv.content) });
-          }
-        }
+        setOfvData(parseOfvData(newOfv.content));
       } else if (fallbackText || contentObj) {
-        const contentStr = contentObj
-          ? JSON.stringify(contentObj)
-          : fallbackText;
+        const fallbackContent = contentObj ?? fallbackText;
         setOfv({
           id: fallbackId,
-          content: contentStr,
+          content: fallbackContent,
+          raw_text: fallbackText || null,
           status: 'draft',
           created_at: new Date().toISOString(),
           tokens_used: undefined
         });
-        if (contentObj) {
-          setOfvData(contentObj as OFVData);
-        } else {
-          try {
-            setOfvData(JSON.parse(fallbackText));
-          } catch {
-            setOfvData({ raw: fallbackText });
-          }
-        }
+        setOfvData(parseOfvData(fallbackContent));
       }
 
       await logActivity({
