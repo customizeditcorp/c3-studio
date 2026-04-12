@@ -25,6 +25,31 @@ type ContentRecord = {
   tokens_used?: number | null;
 };
 
+function ActiveTruthHint({
+  record,
+  label
+}: {
+  record: ContentRecord | null;
+  label: string;
+}) {
+  if (!record) return null;
+
+  if (record.status === 'approved') {
+    return (
+      <p className='text-xs font-medium text-green-700'>
+        {label} aprobado = verdad activa actual para este bloque.
+      </p>
+    );
+  }
+
+  return (
+    <p className='text-muted-foreground text-xs'>
+      {label} en borrador = versión más reciente de trabajo, pero todavía no es
+      verdad aprobada.
+    </p>
+  );
+}
+
 type OFVData = {
   big_promise?: string;
   vehicle_name?: string;
@@ -563,6 +588,7 @@ export default function BriefPage() {
                         </p>
                       )}
                     </div>
+                    <ActiveTruthHint record={brief} label='Brief' />
                     <Textarea
                       value={briefText}
                       onChange={(e) => setBriefText(e.target.value)}
@@ -660,6 +686,7 @@ export default function BriefPage() {
                         </p>
                       )}
                     </div>
+                    <ActiveTruthHint record={persona} label='Buyer Persona' />
                     <Textarea
                       value={personaText}
                       onChange={(e) => setPersonaText(e.target.value)}
@@ -758,6 +785,7 @@ export default function BriefPage() {
                         </p>
                       )}
                     </div>
+                    <ActiveTruthHint record={ofv} label='OFV' />
 
                     {/* Structured OFV display */}
                     {ofvData &&
