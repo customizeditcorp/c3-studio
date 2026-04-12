@@ -1,3 +1,8 @@
+import type {
+  GenerateContentParams,
+  GenerateContentResponse
+} from '@/types/generate-content';
+
 /**
  * Content generation helpers.
  * Uses the Next.js API route (/api/generate-content) which handles
@@ -5,18 +10,9 @@
  * This avoids Supabase Edge Function auth complexity.
  */
 
-export async function generateContent(params: {
-  step: string;
-  clientId: string;
-  inputData?: Record<string, unknown>;
-  save?: boolean;
-}): Promise<{
-  success: boolean;
-  step: string;
-  content: Record<string, unknown>;
-  raw_text: string;
-  saved?: { id: string; table: string } | null;
-}> {
+export async function generateContent(
+  params: GenerateContentParams
+): Promise<GenerateContentResponse> {
   const response = await fetch('/api/generate-content', {
     method: 'POST',
     credentials: 'include',

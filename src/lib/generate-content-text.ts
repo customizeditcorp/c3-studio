@@ -1,11 +1,13 @@
+import type { GenerateContentResponse } from '@/types/generate-content';
+
 /**
  * Normalizes API /generate-content response for UI text fields (descriptions, posts, etc.).
  */
-export function textFromGenerateContentResult(result: {
-  raw_text?: string;
-  content?: unknown;
-  generated_text?: string;
-}): string {
+export function textFromGenerateContentResult(
+  result: Partial<GenerateContentResponse> & {
+    generated_text?: string;
+  }
+): string {
   if (typeof result.raw_text === 'string' && result.raw_text.trim()) {
     return result.raw_text.trim();
   }
