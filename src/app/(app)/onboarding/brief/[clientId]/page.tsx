@@ -15,6 +15,7 @@ import {
   getCanonicalEditableText,
   getCanonicalStructuredContent
 } from '@/lib/upstream-content-contract';
+import { pickApprovedActive } from '@/lib/upstream-version-selection';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
@@ -538,8 +539,12 @@ export default function BriefPage() {
     }
   };
 
-  const briefApproved = brief?.status === 'approved';
-  const personaApproved = persona?.status === 'approved';
+  const activeBrief = pickApprovedActive(approvedBrief, brief);
+  const activePersona = pickApprovedActive(approvedPersona, persona);
+  const activeOfv = pickApprovedActive(approvedOfv, ofv);
+
+  const briefApproved = Boolean(activeBrief?.status === 'approved');
+  const personaApproved = Boolean(activePersona?.status === 'approved');
 
   if (loading) {
     return (
@@ -658,6 +663,12 @@ export default function BriefPage() {
                         Persona.
                       </p>
                     )}
+                    {brief.status !== 'approved' && approvedBrief && (
+                      <p className='text-xs font-medium text-amber-700'>
+                        Hay un Brief aprobado anterior que sigue actuando como
+                        verdad activa.
+                      </p>
+                    )}
                   </>
                 )}
               </CardContent>
@@ -757,6 +768,12 @@ export default function BriefPage() {
                     {persona.status === 'approved' && (
                       <p className='text-sm font-medium text-green-700'>
                         ✅ Buyer Persona aprobada. Ahora puedes generar el OFV.
+                      </p>
+                    )}
+                    {persona.status !== 'approved' && approvedPersona && (
+                      <p className='text-xs font-medium text-amber-700'>
+                        Hay una Buyer Persona aprobada anterior que sigue
+                        actuando como verdad activa.
                       </p>
                     )}
                   </>
@@ -903,6 +920,12 @@ export default function BriefPage() {
                     {ofv.status === 'approved' && (
                       <p className='text-sm font-medium text-green-700'>
                         ✅ OFV aprobado. El flujo de contenido está completo.
+                      </p>
+                    )}
+                    {ofv.status !== 'approved' && approvedOfv && (
+                      <p className='text-xs font-medium text-amber-700'>
+                        Hay un OFV aprobado anterior que sigue actuando como
+                        verdad activa.
                       </p>
                     )}
                   </>
