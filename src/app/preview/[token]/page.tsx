@@ -56,6 +56,7 @@ export default async function PreviewPage({
     .select('*')
     .eq('client_id', preview.client_id)
     .eq('output_type', 'gbp_description')
+    .eq('status', 'approved')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
