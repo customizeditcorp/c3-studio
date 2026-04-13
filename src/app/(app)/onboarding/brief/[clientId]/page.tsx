@@ -11,6 +11,10 @@ import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { logActivity } from '@/lib/activity';
 import { textFromGenerateContentResult } from '@/lib/generate-content-text';
 import { generateContent } from '@/lib/edge-functions';
+import {
+  getCanonicalEditableText,
+  getCanonicalStructuredContent
+} from '@/lib/upstream-content-contract';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
@@ -86,40 +90,11 @@ function GeneratedAt({ date }: { date: string }) {
 }
 
 function extractText(content: unknown, rawText?: string | null): string {
-  if (typeof rawText === 'string' && rawText.trim()) {
-    return rawText.trim();
-  }
-
-  if (typeof content === 'object' && content !== null) {
-    const contentRecord = content as Record<string, unknown>;
-    if (
-      typeof contentRecord.raw_text === 'string' &&
-      contentRecord.raw_text.trim()
-    ) {
-      return contentRecord.raw_text.trim();
-    }
-    return JSON.stringify(content, null, 2);
-  }
-
-  return String(content || '');
+  return getCanonicalEditableText(content, rawText);
 }
 
 function parseOfvData(content: unknown): OFVData | null {
-  if (!content) return null;
-
-  if (typeof content === 'string') {
-    try {
-      return parseOfvData(JSON.parse(content));
-    } catch {
-      return { raw: content };
-    }
-  }
-
-  if (typeof content === 'object') {
-    return content as OFVData;
-  }
-
-  return null;
+  return getCanonicalStructuredContent<OFVData>(content);
 }
 
 export default function BriefPage() {
