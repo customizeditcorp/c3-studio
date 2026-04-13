@@ -31,9 +31,11 @@ type ContentRecord = {
 
 function ActiveTruthHint({
   record,
+  approvedRecord,
   label
 }: {
   record: ContentRecord | null;
+  approvedRecord?: ContentRecord | null;
   label: string;
 }) {
   if (!record) return null;
@@ -42,6 +44,15 @@ function ActiveTruthHint({
     return (
       <p className='text-xs font-medium text-green-700'>
         {label} aprobado = verdad activa actual para este bloque.
+      </p>
+    );
+  }
+
+  if (approvedRecord) {
+    return (
+      <p className='text-amber-700 text-xs font-medium'>
+        Hay una versión aprobada anterior de {label}. Esta vista muestra la
+        versión más reciente de trabajo, no la verdad activa aprobada.
       </p>
     );
   }
@@ -115,16 +126,19 @@ export default function BriefPage() {
 
   // Brief state
   const [brief, setBrief] = useState<ContentRecord | null>(null);
+  const [approvedBrief, setApprovedBrief] = useState<ContentRecord | null>(null);
   const [generatingBrief, setGeneratingBrief] = useState(false);
   const [approvingBrief, setApprovingBrief] = useState(false);
 
   // Persona state
   const [persona, setPersona] = useState<ContentRecord | null>(null);
+  const [approvedPersona, setApprovedPersona] = useState<ContentRecord | null>(null);
   const [generatingPersona, setGeneratingPersona] = useState(false);
   const [approvingPersona, setApprovingPersona] = useState(false);
 
   // OFV state
   const [ofv, setOfv] = useState<ContentRecord | null>(null);
+  const [approvedOfv, setApprovedOfv] = useState<ContentRecord | null>(null);
   const [ofvData, setOfvData] = useState<OFVData | null>(null);
   const [generatingOfv, setGeneratingOfv] = useState(false);
   const [approvingOfv, setApprovingOfv] = useState(false);
@@ -161,7 +175,7 @@ export default function BriefPage() {
       .single();
     if (clientData) setClient(clientData);
 
-    // Load latest brief
+    // Load latest + approved brief
     const { data: briefData } = await supabase
       .from('briefs')
       .select('id, content, raw_text, status, created_at, tokens_used')
@@ -171,7 +185,17 @@ export default function BriefPage() {
       .maybeSingle();
     if (briefData) setBrief(briefData);
 
-    // Load latest persona
+    const { data: approvedBriefData } = await supabase
+      .from('briefs')
+      .select('id, content, raw_text, status, created_at, tokens_used')
+      .eq('client_id', clientId)
+      .eq('status', 'approved')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setApprovedBrief(approvedBriefData ?? null);
+
+    // Load latest + approved persona
     const { data: personaData } = await supabase
       .from('buyer_personas')
       .select('id, content, raw_text, status, created_at, tokens_used')
@@ -181,7 +205,17 @@ export default function BriefPage() {
       .maybeSingle();
     if (personaData) setPersona(personaData);
 
-    // Load latest offer/OFV
+    const { data: approvedPersonaData } = await supabase
+      .from('buyer_personas')
+      .select('id, content, raw_text, status, created_at, tokens_used')
+      .eq('client_id', clientId)
+      .eq('status', 'approved')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setApprovedPersona(approvedPersonaData ?? null);
+
+    // Load latest + approved offer/OFV
     const { data: ofvDbData } = await supabase
       .from('offers')
       .select('id, content, raw_text, status, created_at, tokens_used')
@@ -193,6 +227,16 @@ export default function BriefPage() {
       setOfv(ofvDbData);
       setOfvData(parseOfvData(ofvDbData.content));
     }
+
+    const { data: approvedOfvData } = await supabase
+      .from('offers')
+      .select('id, content, raw_text, status, created_at, tokens_used')
+      .eq('client_id', clientId)
+      .eq('status', 'approved')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setApprovedOfv(approvedOfvData ?? null);
 
     setLoading(false);
   };
@@ -563,7 +607,11 @@ export default function BriefPage() {
                         </p>
                       )}
                     </div>
-                    <ActiveTruthHint record={brief} label='Brief' />
+                    <ActiveTruthHint
+                      record={brief}
+                      approvedRecord={approvedBrief}
+                      label='Brief'
+                    />
                     <Textarea
                       value={briefText}
                       onChange={(e) => setBriefText(e.target.value)}
@@ -661,7 +709,11 @@ export default function BriefPage() {
                         </p>
                       )}
                     </div>
-                    <ActiveTruthHint record={persona} label='Buyer Persona' />
+                    <ActiveTruthHint
+                      record={persona}
+                      approvedRecord={approvedPersona}
+                      label='Buyer Persona'
+                    />
                     <Textarea
                       value={personaText}
                       onChange={(e) => setPersonaText(e.target.value)}
@@ -760,7 +812,11 @@ export default function BriefPage() {
                         </p>
                       )}
                     </div>
-                    <ActiveTruthHint record={ofv} label='OFV' />
+                    <ActiveTruthHint
+                      record={ofv}
+                      approvedRecord={approvedOfv}
+                      label='OFV'
+                    />
 
                     {/* Structured OFV display */}
                     {ofvData &&
