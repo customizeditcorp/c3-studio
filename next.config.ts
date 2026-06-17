@@ -6,11 +6,6 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 'api.slingacademy.com',
-        port: ''
-      },
-      {
-        protocol: 'https',
         hostname: 'uxczbwtfcsjsrmrikwoh.supabase.co',
         port: ''
       }
@@ -18,7 +13,6 @@ const nextConfig: NextConfig = {
   },
   transpilePackages: ['geist'],
   eslint: { ignoreDuringBuilds: true },
-  typescript: { ignoreBuildErrors: true },
   typescript: { ignoreBuildErrors: true }
 };
 
