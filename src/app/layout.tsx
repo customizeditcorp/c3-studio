@@ -16,8 +16,8 @@ const META_THEME_COLORS = {
 };
 
 export const metadata: Metadata = {
-  title: 'Next Shadcn',
-  description: 'Basic dashboard with Next.js and Shadcn'
+  title: 'C3 Studio',
+  description: 'C3 Local Marketing — Internal Operations'
 };
 
 export const viewport: Viewport = {
