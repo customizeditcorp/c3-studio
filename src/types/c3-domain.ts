@@ -168,3 +168,17 @@ export interface ActivityLog {
   metadata: Record<string, unknown> | null;
   created_at: string;
 }
+
+export interface Brandboard {
+  id: string;
+  client_id: string;
+  tenant_id: string;
+  logo_url: string | null;
+  logo_storage_path: string | null;
+  colors: { primary: string; secondary: string; accent: string };
+  typography: { primary_font: string; secondary_font: string };
+  tone_voice: { tone: string; adjectives: string; dos: string; donts: string };
+  status: 'draft' | 'approved';
+  created_at: string;
+  updated_at: string;
+}
