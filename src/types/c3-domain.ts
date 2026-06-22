@@ -182,3 +182,23 @@ export interface Brandboard {
   created_at: string;
   updated_at: string;
 }
+
+export type AssetType = 'gbp' | 'website' | 'seo' | 'geo' | 'social';
+export type AssetStatus =
+  | 'locked'
+  | 'pending'
+  | 'in_progress'
+  | 'review'
+  | 'approved'
+  | 'live';
+
+export interface ClientAsset {
+  id: string;
+  client_id: string;
+  tenant_id: string;
+  asset_type: AssetType;
+  status: AssetStatus;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}

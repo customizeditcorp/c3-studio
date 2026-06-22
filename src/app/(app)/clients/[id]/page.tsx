@@ -18,6 +18,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Icons } from '@/components/icons';
+import { ClientAssetHub } from './client-asset-hub';
 
 const STATUS_LABELS: Record<string, string> = {
   lead: 'Lead',
@@ -109,15 +110,64 @@ export default function ClientDetailPage() {
       { data: photosData },
       { data: previewData }
     ] = await Promise.all([
-      supabase.from('diagnostics').select('id').eq('client_id', id).limit(1).maybeSingle(),
-      supabase.from('credentials').select('id').eq('client_id', id).limit(1).maybeSingle(),
-      supabase.from('nap_checks').select('id').eq('client_id', id).limit(1).maybeSingle(),
-      supabase.from('briefs').select('status').eq('client_id', id).eq('status', 'approved').limit(1).maybeSingle(),
-      supabase.from('buyer_personas').select('status').eq('client_id', id).eq('status', 'approved').limit(1).maybeSingle(),
-      supabase.from('offers').select('status').eq('client_id', id).eq('status', 'approved').limit(1).maybeSingle(),
-      supabase.from('gbp_profiles').select('description').eq('client_id', id).limit(1).maybeSingle(),
-      supabase.from('client_photos').select('id').eq('client_id', id).eq('approved', true).limit(1).maybeSingle(),
-      supabase.from('previews').select('id').eq('client_id', id).limit(1).maybeSingle()
+      supabase
+        .from('diagnostics')
+        .select('id')
+        .eq('client_id', id)
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from('credentials')
+        .select('id')
+        .eq('client_id', id)
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from('nap_checks')
+        .select('id')
+        .eq('client_id', id)
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from('briefs')
+        .select('status')
+        .eq('client_id', id)
+        .eq('status', 'approved')
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from('buyer_personas')
+        .select('status')
+        .eq('client_id', id)
+        .eq('status', 'approved')
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from('offers')
+        .select('status')
+        .eq('client_id', id)
+        .eq('status', 'approved')
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from('gbp_profiles')
+        .select('description')
+        .eq('client_id', id)
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from('client_photos')
+        .select('id')
+        .eq('client_id', id)
+        .eq('approved', true)
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from('previews')
+        .select('id')
+        .eq('client_id', id)
+        .limit(1)
+        .maybeSingle()
     ]);
 
     setProgress({
@@ -127,7 +177,7 @@ export default function ClientDetailPage() {
       briefApproved: !!briefData,
       personaApproved: !!personaData,
       ofvApproved: !!ofvData,
-      hasGbpDescription: !!(gbpData?.description),
+      hasGbpDescription: !!gbpData?.description,
       hasApprovedPhotos: !!photosData,
       previewSent: !!previewData
     });
@@ -192,7 +242,7 @@ export default function ClientDetailPage() {
         {/* Status Timeline */}
         <Card>
           <CardHeader>
-            <CardTitle className='text-sm font-medium text-muted-foreground'>
+            <CardTitle className='text-muted-foreground text-sm font-medium'>
               Progreso
             </CardTitle>
           </CardHeader>
@@ -224,7 +274,7 @@ export default function ClientDetailPage() {
         </Card>
 
         <Tabs defaultValue='overview'>
-          <TabsList className='flex-wrap h-auto'>
+          <TabsList className='h-auto flex-wrap'>
             <TabsTrigger value='overview'>Resumen</TabsTrigger>
             <TabsTrigger value='diagnostic'>Diagnóstico</TabsTrigger>
             <TabsTrigger value='credentials'>Credenciales</TabsTrigger>
@@ -232,6 +282,7 @@ export default function ClientDetailPage() {
             <TabsTrigger value='brief'>Brief & Persona</TabsTrigger>
             <TabsTrigger value='photos'>Fotos</TabsTrigger>
             <TabsTrigger value='gbp'>GBP</TabsTrigger>
+            <TabsTrigger value='presencia'>Presencia Digital</TabsTrigger>
           </TabsList>
 
           <TabsContent value='overview' className='mt-4'>
@@ -239,30 +290,50 @@ export default function ClientDetailPage() {
               {/* Progress Checklist */}
               <Card className='sm:col-span-2'>
                 <CardHeader>
-                  <CardTitle className='text-base'>Progreso del cliente</CardTitle>
+                  <CardTitle className='text-base'>
+                    Progreso del cliente
+                  </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className='grid gap-2 sm:grid-cols-2'>
                     {[
-                      { label: 'Diagnóstico completado', done: progress.hasDiagnostic },
-                      { label: 'Credenciales verificadas', done: progress.hasCredentials },
+                      {
+                        label: 'Diagnóstico completado',
+                        done: progress.hasDiagnostic
+                      },
+                      {
+                        label: 'Credenciales verificadas',
+                        done: progress.hasCredentials
+                      },
                       { label: 'NAP verificado', done: progress.hasNap },
                       { label: 'Brief aprobado', done: progress.briefApproved },
-                      { label: 'Buyer Persona aprobada', done: progress.personaApproved },
+                      {
+                        label: 'Buyer Persona aprobada',
+                        done: progress.personaApproved
+                      },
                       { label: 'OFV aprobado', done: progress.ofvApproved },
-                      { label: 'GBP description generada', done: progress.hasGbpDescription },
-                      { label: 'Fotos subidas y aprobadas', done: progress.hasApprovedPhotos },
+                      {
+                        label: 'GBP description generada',
+                        done: progress.hasGbpDescription
+                      },
+                      {
+                        label: 'Fotos subidas y aprobadas',
+                        done: progress.hasApprovedPhotos
+                      },
                       { label: 'Preview enviado', done: progress.previewSent }
                     ].map((item) => (
                       <div key={item.label} className='flex items-center gap-2'>
-                        <span className={`text-sm ${item.done ? 'text-green-600' : 'text-muted-foreground'}`}>
+                        <span
+                          className={`text-sm ${item.done ? 'text-green-600' : 'text-muted-foreground'}`}
+                        >
                           {item.done ? '✅' : '⬜'} {item.label}
                         </span>
                       </div>
                     ))}
                   </div>
-                  <p className='text-xs text-muted-foreground mt-3'>
-                    {Object.values(progress).filter(Boolean).length} / {Object.values(progress).length} completados
+                  <p className='text-muted-foreground mt-3 text-xs'>
+                    {Object.values(progress).filter(Boolean).length} /{' '}
+                    {Object.values(progress).length} completados
                   </p>
                 </CardContent>
               </Card>
@@ -274,13 +345,13 @@ export default function ClientDetailPage() {
                 </CardHeader>
                 <CardContent className='space-y-3'>
                   <div>
-                    <p className='text-xs font-medium text-muted-foreground'>
+                    <p className='text-muted-foreground text-xs font-medium'>
                       Nombre del negocio
                     </p>
                     <p className='text-sm'>{client.business_name}</p>
                   </div>
                   <div>
-                    <p className='text-xs font-medium text-muted-foreground'>
+                    <p className='text-muted-foreground text-xs font-medium'>
                       Industria
                     </p>
                     <p className='text-sm capitalize'>
@@ -288,7 +359,7 @@ export default function ClientDetailPage() {
                     </p>
                   </div>
                   <div>
-                    <p className='text-xs font-medium text-muted-foreground'>
+                    <p className='text-muted-foreground text-xs font-medium'>
                       Estado
                     </p>
                     <Badge variant='default'>
@@ -297,7 +368,7 @@ export default function ClientDetailPage() {
                   </div>
                   {client.tier && (
                     <div>
-                      <p className='text-xs font-medium text-muted-foreground'>
+                      <p className='text-muted-foreground text-xs font-medium'>
                         Tier
                       </p>
                       <p className='text-sm capitalize'>
@@ -314,7 +385,7 @@ export default function ClientDetailPage() {
                 </CardHeader>
                 <CardContent className='space-y-3'>
                   <div>
-                    <p className='text-xs font-medium text-muted-foreground'>
+                    <p className='text-muted-foreground text-xs font-medium'>
                       Nombre
                     </p>
                     <p className='text-sm'>
@@ -324,19 +395,19 @@ export default function ClientDetailPage() {
                     </p>
                   </div>
                   <div>
-                    <p className='text-xs font-medium text-muted-foreground'>
+                    <p className='text-muted-foreground text-xs font-medium'>
                       Teléfono
                     </p>
                     <p className='text-sm'>{client.phone || '—'}</p>
                   </div>
                   <div>
-                    <p className='text-xs font-medium text-muted-foreground'>
+                    <p className='text-muted-foreground text-xs font-medium'>
                       Email
                     </p>
                     <p className='text-sm'>{client.email || '—'}</p>
                   </div>
                   <div>
-                    <p className='text-xs font-medium text-muted-foreground'>
+                    <p className='text-muted-foreground text-xs font-medium'>
                       Perfil DISC
                     </p>
                     <p className='text-sm'>{client.disc_profile || '—'}</p>
@@ -350,7 +421,9 @@ export default function ClientDetailPage() {
                     <CardTitle className='text-base'>Notas</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className='text-sm whitespace-pre-wrap'>{client.notes}</p>
+                    <p className='text-sm whitespace-pre-wrap'>
+                      {client.notes}
+                    </p>
                   </CardContent>
                 </Card>
               )}
@@ -379,9 +452,7 @@ export default function ClientDetailPage() {
                   Credenciales del cliente
                 </p>
                 <Button asChild>
-                  <Link
-                    href={`/onboarding/credentials/${client.id}`}
-                  >
+                  <Link href={`/onboarding/credentials/${client.id}`}>
                     Gestionar Credenciales
                   </Link>
                 </Button>
@@ -392,9 +463,7 @@ export default function ClientDetailPage() {
           <TabsContent value='nap' className='mt-4'>
             <Card>
               <CardContent className='py-8 text-center'>
-                <p className='text-muted-foreground mb-4'>
-                  Verificación NAP
-                </p>
+                <p className='text-muted-foreground mb-4'>Verificación NAP</p>
                 <Button asChild>
                   <Link href={`/onboarding/nap/${client.id}`}>
                     Verificar NAP
@@ -410,18 +479,24 @@ export default function ClientDetailPage() {
                 <p className='text-muted-foreground mb-2'>
                   Generación de contenido con IA
                 </p>
-                <p className='text-sm text-muted-foreground mb-4'>
+                <p className='text-muted-foreground mb-4 text-sm'>
                   Brief · Buyer Persona · Oferta de Valor
                 </p>
-                <div className='flex gap-2 justify-center flex-wrap'>
+                <div className='flex flex-wrap justify-center gap-2'>
                   {progress.briefApproved && (
-                    <Badge className='bg-green-100 text-green-800 border-green-200'>Brief ✓</Badge>
+                    <Badge className='border-green-200 bg-green-100 text-green-800'>
+                      Brief ✓
+                    </Badge>
                   )}
                   {progress.personaApproved && (
-                    <Badge className='bg-green-100 text-green-800 border-green-200'>Persona ✓</Badge>
+                    <Badge className='border-green-200 bg-green-100 text-green-800'>
+                      Persona ✓
+                    </Badge>
                   )}
                   {progress.ofvApproved && (
-                    <Badge className='bg-green-100 text-green-800 border-green-200'>OFV ✓</Badge>
+                    <Badge className='border-green-200 bg-green-100 text-green-800'>
+                      OFV ✓
+                    </Badge>
                   )}
                 </div>
                 <Button asChild className='mt-4'>
@@ -436,9 +511,7 @@ export default function ClientDetailPage() {
           <TabsContent value='photos' className='mt-4'>
             <Card>
               <CardContent className='py-8 text-center'>
-                <p className='text-muted-foreground mb-4'>
-                  Fotos del cliente
-                </p>
+                <p className='text-muted-foreground mb-4'>Fotos del cliente</p>
                 <Button asChild>
                   <Link href={`/photos/${client.id}`}>Gestionar Fotos</Link>
                 </Button>
@@ -457,6 +530,10 @@ export default function ClientDetailPage() {
                 </Button>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value='presencia' className='mt-4'>
+            <ClientAssetHub clientId={client.id} tenantId={tenantId!} />
           </TabsContent>
         </Tabs>
       </div>
