@@ -131,7 +131,7 @@ export default function ClientForm({
 
         if (error) throw error;
 
-        await logActivity({
+        logActivity({
           tenantId,
           userId: user.id,
           action: 'client_updated',
@@ -139,7 +139,7 @@ export default function ClientForm({
           entityId: initialData.id!,
           clientId: initialData.id,
           metadata: { business_name: formData.business_name }
-        });
+        }).catch(console.error);
 
         toast.success('Cliente actualizado');
         onSuccess?.(initialData.id!);
@@ -152,7 +152,7 @@ export default function ClientForm({
 
         if (error) throw error;
 
-        await logActivity({
+        logActivity({
           tenantId,
           userId: user.id,
           action: 'client_created',
@@ -160,7 +160,7 @@ export default function ClientForm({
           entityId: data.id,
           clientId: data.id,
           metadata: { business_name: formData.business_name }
-        });
+        }).catch(console.error);
 
         toast.success('Cliente creado');
         onSuccess?.(data.id);
