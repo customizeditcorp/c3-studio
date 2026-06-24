@@ -360,6 +360,8 @@ export default function BriefPage() {
   });
   const [generatingBrief, setGeneratingBrief] = useState(false);
   const [approvingBrief, setApprovingBrief] = useState(false);
+  const [briefError, setBriefError] = useState<string | null>(null);
+  const [savingDraft, setSavingDraft] = useState(false);
 
   // Persona
   const [personaRecord, setPersonaRecord] = useState<ContentRecord | null>(
@@ -508,6 +510,7 @@ export default function BriefPage() {
     }
     setGeneratingBrief(true);
     try {
+      setBriefError(null);
       const result = await generateContent({
         step: 'brief',
         clientId,
@@ -535,7 +538,9 @@ export default function BriefPage() {
       }
       toast.success('Brief generado con GPT-4o');
     } catch (e) {
-      toast.error(`Error: ${e instanceof Error ? e.message : 'desconocido'}`);
+      const msg = e instanceof Error ? e.message : 'Error desconocido';
+      toast.error(`Error: ${msg}`);
+      setBriefError(msg);
     } finally {
       setGeneratingBrief(false);
     }
@@ -563,6 +568,24 @@ export default function BriefPage() {
       toast.error('Error al aprobar');
     } finally {
       setApprovingBrief(false);
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    if (!briefRecord || !tenantId) return;
+    setSavingDraft(true);
+    try {
+      await supabase
+        .from('briefs')
+        .update({ content: fieldsToContent(briefFields) })
+        .eq('id', briefRecord.id);
+      toast.success('Borrador guardado');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Error desconocido';
+      toast.error(`Error al guardar: ${msg}`);
+      setBriefError(msg);
+    } finally {
+      setSavingDraft(false);
     }
   };
 
@@ -1150,16 +1173,37 @@ export default function BriefPage() {
 
             {/* Actions */}
             <div className='flex flex-wrap gap-2'>
-              <Button onClick={handleGenerateBrief} disabled={generatingBrief}>
+              <Button
+                onClick={handleGenerateBrief}
+                disabled={generatingBrief || savingDraft}
+              >
                 {generatingBrief ? (
                   <>
                     <Icons.spinner className='mr-2 h-4 w-4 animate-spin' />
                     Generando...
                   </>
+                ) : briefRecord ? (
+                  '↺ Regenerar Brief'
                 ) : (
                   '✨ Generar Brief con AI'
                 )}
               </Button>
+              {briefRecord && !briefApproved && (
+                <Button
+                  variant='outline'
+                  onClick={handleSaveDraft}
+                  disabled={savingDraft || generatingBrief}
+                >
+                  {savingDraft ? (
+                    <>
+                      <Icons.spinner className='mr-2 h-4 w-4 animate-spin' />
+                      Guardando...
+                    </>
+                  ) : (
+                    'Guardar borrador'
+                  )}
+                </Button>
+              )}
               {briefRecord && briefRecord.status !== 'approved' && (
                 <Button
                   onClick={handleApproveBrief}
@@ -1182,6 +1226,65 @@ export default function BriefPage() {
                 </p>
               )}
             </div>
+
+            {/* Advertencia de regeneracion */}
+            {briefRecord && !briefApproved && (
+              <p className='text-muted-foreground text-xs'>
+                Regenerar reemplazará el contenido actual.
+              </p>
+            )}
+
+            {/* Error persistente */}
+            {briefError && (
+              <div className='rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700'>
+                <span className='font-medium'>Error al generar:</span>{' '}
+                {briefError}. Revisa tu conexión o contacta soporte si el error
+                persiste.
+              </div>
+            )}
+
+            {/* Output panel */}
+            {briefRecord && (
+              <Card className='border-blue-100 bg-blue-50/40'>
+                <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-3'>
+                  <CardTitle className='text-sm font-medium text-blue-900'>
+                    Resultado AI — Brief generado
+                  </CardTitle>
+                  <div className='flex items-center gap-2'>
+                    <span className='text-muted-foreground text-xs'>
+                      {new Date(briefRecord.created_at).toLocaleDateString(
+                        'es-MX',
+                        {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric'
+                        }
+                      )}
+                    </span>
+                    <StatusBadge status={briefRecord.status} />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <dl className='grid grid-cols-1 gap-y-1.5 text-sm sm:grid-cols-2'>
+                    {(
+                      Object.entries(briefFields) as [
+                        keyof BriefFields,
+                        string
+                      ][]
+                    )
+                      .filter(([, v]) => v)
+                      .map(([k, v]) => (
+                        <div key={k} className='flex flex-col'>
+                          <dt className='text-muted-foreground text-[11px] capitalize'>
+                            {k.replace(/_/g, ' ')}
+                          </dt>
+                          <dd className='text-foreground font-medium'>{v}</dd>
+                        </div>
+                      ))}
+                  </dl>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           {/* ============ TAB 2: BUYER PERSONA ============ */}
