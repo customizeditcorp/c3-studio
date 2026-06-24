@@ -117,7 +117,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         const user = session?.user ?? null;
         didFinish = true;
         setUser(user);
-        if (user)
+
+        if (user) {
           await fetchProfile(
             user.id,
             user.email,
@@ -125,6 +126,25 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
               ? user.user_metadata.full_name
               : null
           );
+        } else {
+          // F-042: segunda línea de defensa client-side.
+          // Si no hay sesión y la ruta no es pública, redirigir a /login.
+          // Esta lista debe mantenerse idéntica a la de src/lib/supabase/middleware.ts.
+          const publicPaths = [
+            '/login',
+            '/signup',
+            '/auth/callback',
+            '/preview/',
+            '/api/preview-approve',
+            '/api/preview-feedback'
+          ];
+          const currentPath = window.location.pathname;
+          const isPublic = publicPaths.some((p) => currentPath.startsWith(p));
+          if (!isPublic) {
+            window.location.replace('/login');
+            return;
+          }
+        }
       } catch (err) {
         console.error('Auth check failed:', err);
       } finally {
