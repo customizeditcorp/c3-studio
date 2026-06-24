@@ -6,6 +6,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState
 } from 'react';
 import { createClient } from '@/lib/supabase/client';
@@ -46,6 +47,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [profileMissing, setProfileMissing] = useState(false);
   const supabase = useMemo(() => createClient(), []);
+  const isIntentionalSignOut = useRef(false);
 
   const fetchProfile = useCallback(
     async (
@@ -110,8 +112,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     const getUser = async () => {
       try {
         const {
-          data: { user }
-        } = await supabase.auth.getUser();
+          data: { session }
+        } = await supabase.auth.getSession();
+        const user = session?.user ?? null;
         didFinish = true;
         setUser(user);
         if (user)
@@ -132,7 +135,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
     void getUser();
 
-    // Safety timeout: if auth check hangs for 8s, unblock the UI
+    // Safety timeout: si auth check cuelga 8s, desbloquea el UI.
+    // No detecta sesión expirada — ese path es onAuthStateChange SIGNED_OUT.
     const timeout = setTimeout(() => {
       if (!didFinish) {
         console.warn('Auth check timed out after 8s — unblocking UI');
@@ -142,7 +146,30 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
     const {
       data: { subscription }
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_OUT') {
+        if (isIntentionalSignOut.current) {
+          isIntentionalSignOut.current = false;
+          setUser(null);
+          setProfile(null);
+          setProfileMissing(false);
+          setLoading(false);
+          return;
+        }
+        // SIGNED_OUT durante init = error de red, no expiración real
+        // SIGNED_OUT post-init = refresh token rechazado (400) → session_expired
+        setUser(null);
+        setProfile(null);
+        setProfileMissing(false);
+        setLoading(false);
+        if (didFinish) {
+          window.location.replace('/login?reason=session_expired');
+        } else {
+          window.location.replace('/login');
+        }
+        return;
+      }
+
       setUser(session?.user ?? null);
       if (session?.user) {
         await fetchProfile(
@@ -167,8 +194,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     try {
+      isIntentionalSignOut.current = true;
       const { error } = await supabase.auth.signOut();
-      if (error) console.error('Error signing out:', error);
+      if (error) {
+        isIntentionalSignOut.current = false;
+        console.error('Error signing out:', error);
+      }
     } finally {
       setUser(null);
       setProfile(null);
