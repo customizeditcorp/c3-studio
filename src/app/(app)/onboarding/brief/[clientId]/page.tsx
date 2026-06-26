@@ -967,7 +967,15 @@ export default function BriefPage() {
             </BlockCard>
 
             {/* Block 3 */}
-            <BlockCard title='Bloque 3 — Cliente ideal' badge='90% AI sugiere'>
+            <BlockCard
+              title='Bloque 3 — Perfil del cliente ideal'
+              badge='AI sugiere'
+            >
+              <p className='text-muted-foreground mb-3 text-xs'>
+                Este perfil es un primer esbozo que el AI usará para generar el
+                Brief y servirá como punto de partida para la Buyer Persona
+                completa.
+              </p>
               <div className='grid grid-cols-2 gap-3'>
                 <Field label='Edad' dot='ai'>
                   <Input
@@ -1067,7 +1075,7 @@ export default function BriefPage() {
 
             {/* Block 4 */}
             <BlockCard
-              title='Bloque 4 — Diferenciadores'
+              title='Bloque 4 — Diferenciadores y evidencia'
               badge='Carlos completa'
             >
               <Field label='Qué hace diferente vs competencia' dot='manual'>
@@ -1080,14 +1088,22 @@ export default function BriefPage() {
                   placeholder='Ej: servicio bilingüe, entrega same-day, mantenimiento incluido...'
                 />
               </Field>
-              <Field label='Garantías' dot='manual'>
+              <Field
+                label='Garantías'
+                dot='manual'
+                hint='Datos crudos — el AI los elaborará en el OFV'
+              >
                 <Input
                   value={briefFields.guarantees}
                   onChange={(e) => updateBrief('guarantees', e.target.value)}
                   placeholder='Ej: entrega en 24hrs o gratis'
                 />
               </Field>
-              <Field label='Casos de éxito o métricas' dot='manual'>
+              <Field
+                label='Casos de éxito o métricas'
+                dot='manual'
+                hint='El AI los convertirá en social proof en el OFV'
+              >
                 <Input
                   value={briefFields.success_cases}
                   onChange={(e) => updateBrief('success_cases', e.target.value)}
@@ -1291,10 +1307,17 @@ export default function BriefPage() {
           <TabsContent value='persona' className='mt-4 max-w-3xl space-y-4'>
             <div className='flex items-center justify-between'>
               <h3 className='text-sm font-medium'>
-                Buyer Persona (12 bloques)
+                Buyer Persona completa (construida desde el Brief)
               </h3>
               {personaRecord && <StatusBadge status={personaRecord.status} />}
             </div>
+
+            {briefApproved && (
+              <div className='text-muted-foreground rounded-md border border-blue-100 bg-blue-50/40 px-3 py-2 text-xs'>
+                El AI usará el perfil del cliente ideal del Brief como punto de
+                partida. Puedes aceptar las sugerencias o sobrescribirlas.
+              </div>
+            )}
 
             {!briefApproved ? (
               <Card>
@@ -1727,7 +1750,11 @@ export default function BriefPage() {
 
                 <BlockCard title='6-7. Garantía y urgencia'>
                   <div className='grid grid-cols-2 gap-3'>
-                    <Field label='Garantía / Risk Reversal' dot='manual'>
+                    <Field
+                      label='Garantía / Risk Reversal'
+                      dot='manual'
+                      hint='Basado en las garantías del Brief — elabora y formaliza'
+                    >
                       <Textarea
                         value={ofvFields.guarantee}
                         onChange={(e) => updateOFV('guarantee', e.target.value)}
@@ -1756,6 +1783,7 @@ export default function BriefPage() {
                   <Field
                     label='Testimonios con métricas antes/después'
                     dot='manual'
+                    hint='Basado en casos de éxito del Brief — amplía con métricas'
                   >
                     <Textarea
                       value={ofvFields.social_proof}
