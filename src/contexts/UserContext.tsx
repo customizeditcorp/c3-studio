@@ -191,13 +191,29 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
       setUser(session?.user ?? null);
       if (session?.user) {
-        await fetchProfile(
-          session.user.id,
-          session.user.email,
-          typeof session.user.user_metadata?.full_name === 'string'
-            ? session.user.user_metadata.full_name
-            : null
-        );
+        let handlerDidFinish = false;
+        const handlerTimeout = new Promise<void>((resolve) => {
+          setTimeout(() => {
+            if (!handlerDidFinish) {
+              console.warn(
+                'onAuthStateChange fetchProfile timed out after 8s — unblocking UI'
+              );
+            }
+            resolve();
+          }, 8000);
+        });
+        await Promise.race([
+          fetchProfile(
+            session.user.id,
+            session.user.email,
+            typeof session.user.user_metadata?.full_name === 'string'
+              ? session.user.user_metadata.full_name
+              : null
+          ).then(() => {
+            handlerDidFinish = true;
+          }),
+          handlerTimeout
+        ]);
       } else {
         setProfile(null);
         setProfileMissing(false);
