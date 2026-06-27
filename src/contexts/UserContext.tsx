@@ -115,7 +115,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
           data: { session }
         } = await supabase.auth.getSession();
         const user = session?.user ?? null;
-        didFinish = true;
         setUser(user);
 
         if (user) {
