@@ -271,10 +271,14 @@ export async function POST(request: NextRequest) {
           client_id,
           prompt_version_id: prompt.id,
           content: parsedContent,
-          raw_text: rawText,
           status: 'draft',
           version: 1
         };
+        // La tabla `offers` no tiene columna `raw_text` (el raw persiste en
+        // `content.raw_text`); solo `briefs`/`buyer_personas` la poseen.
+        if (table !== 'offers') {
+          insertData.raw_text = rawText;
+        }
         if (step === 'ofv' && parsedContent) {
           const { data: lp } = await supabase
             .from('buyer_personas')
@@ -283,7 +287,16 @@ export async function POST(request: NextRequest) {
             .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle();
-          if (lp) insertData.persona_id = lp.id;
+          if (!lp) {
+            return NextResponse.json(
+              {
+                success: false,
+                error: 'OFV requiere una buyer persona para el cliente'
+              },
+              { status: 422 }
+            );
+          }
+          insertData.persona_id = lp.id;
           for (const k of [
             'big_promise',
             'vehicle_name',
@@ -353,22 +366,20 @@ export async function POST(request: NextRequest) {
       const persistedStep =
         Boolean(tableMap[step]) || outputSteps.includes(step);
       if (!persistedStep || savedRecord) {
-        await supabase
-          .from('activity_log')
-          .insert({
-            tenant_id: clientTenantId,
-            client_id,
-            user_id: user.id,
-            action: step + '_generated',
-            entity_type: step,
-            entity_id:
-              savedRecord?.id != null ? String(savedRecord.id) : client_id,
-            metadata: {
-              prompt_version_id: prompt.id,
-              methodology: prompt.methodology,
-              model: AI_MODEL
-            }
-          });
+        await supabase.from('activity_log').insert({
+          tenant_id: clientTenantId,
+          client_id,
+          user_id: user.id,
+          action: step + '_generated',
+          entity_type: step,
+          entity_id:
+            savedRecord?.id != null ? String(savedRecord.id) : client_id,
+          metadata: {
+            prompt_version_id: prompt.id,
+            methodology: prompt.methodology,
+            model: AI_MODEL
+          }
+        });
       }
     }
     return NextResponse.json({

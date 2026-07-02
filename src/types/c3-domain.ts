@@ -6,7 +6,12 @@ export type ClientStatus =
   | 'active'
   | 'churned';
 
-export type RecordStatus = 'draft' | 'approved' | 'rejected' | 'archived';
+export type RecordStatus =
+  | 'draft'
+  | 'in_review'
+  | 'approved'
+  | 'rejected'
+  | 'published';
 
 export interface Client {
   id: string;
@@ -35,32 +40,37 @@ export interface Diagnostic {
 export interface Brief {
   id: string;
   client_id: string;
-  tenant_id: string;
   content: Record<string, unknown>;
   raw_text: string | null;
   status: RecordStatus;
   version: number;
   prompt_version_id: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  updated_at: string;
+  tokens_used: number | null;
   created_at: string;
 }
 
 export interface BuyerPersona {
   id: string;
   client_id: string;
-  tenant_id: string;
   brief_id: string | null;
   content: Record<string, unknown>;
   raw_text: string | null;
   status: RecordStatus;
   version: number;
   prompt_version_id: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  updated_at: string;
+  tokens_used: number | null;
   created_at: string;
 }
 
 export interface Offer {
   id: string;
   client_id: string;
-  tenant_id: string;
   persona_id: string | null;
   big_promise: string | null;
   vehicle_name: string | null;
@@ -72,10 +82,13 @@ export interface Offer {
   social_proof: string | null;
   deliverables: string | null;
   content: Record<string, unknown>;
-  raw_text: string | null;
   status: RecordStatus;
   version: number;
   prompt_version_id: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  updated_at: string;
+  tokens_used: number | null;
   created_at: string;
 }
 
@@ -97,7 +110,7 @@ export interface Preview {
   id: string;
   client_id: string;
   token: string;
-  preview_type: string;
+  type: string;
   expires_at: string | null;
   approved: boolean;
   created_by: string | null;
