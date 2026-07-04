@@ -107,7 +107,21 @@ export const SIGLA_ALLOWLIST: string[] = [
   'SLO',
   'LA',
   'SF',
-  'SD'
+  'SD',
+  // Local-marketing domain acronyms (CL-018)
+  'GBP',
+  'SEO',
+  'NAP',
+  'OFV',
+  'CTA',
+  'ROI',
+  'PPC',
+  'CRM',
+  'USP',
+  'FAQ',
+  'SMS',
+  'CTR',
+  'URL'
 ];
 
 /** Broad emoji detection (pictographs, symbols, dingbats, regional indicators). */

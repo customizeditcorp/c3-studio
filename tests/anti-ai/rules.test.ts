@@ -129,6 +129,28 @@ test('T-V06 allowlisted acronyms -> nothing', () => {
     0
   );
 });
+test('T-V06 domain acronyms GBP/SEO/NAP -> nothing (CL-018)', () => {
+  for (const acronym of ['GBP', 'SEO', 'NAP']) {
+    const r = run(`Optimize your ${acronym} listing today`);
+    assert.equal(
+      r.issues.filter((i) => i.rule_id === 'all-caps.excessive').length,
+      0,
+      `${acronym} should not produce an all-caps issue`
+    );
+    assert.equal(
+      r.warnings.filter((w) => w.rule_id === 'all-caps.excessive').length,
+      0,
+      `${acronym} should not produce an all-caps warning`
+    );
+  }
+});
+test('T-V06 non-allowlisted 3-letter acronym XYZ still flagged (no over-suppression)', () => {
+  const r = run('Check the XYZ report');
+  assert.ok(
+    r.warnings.some((w) => w.rule_id === 'all-caps.excessive'),
+    'XYZ should still produce an all-caps warning'
+  );
+});
 
 // --- T-V07: from-x-to-y context-aware ---
 test('T-V07 "from chaos to clarity" -> warning', () => {
