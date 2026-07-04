@@ -2,6 +2,13 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import {
+  ANTI_AI_RULES,
+  validate,
+  extractOffersFields,
+  extractGeneratedOutputFields,
+  attachValidation
+} from '@/lib/anti-ai/validator';
 const AI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o';
 export async function POST(request: NextRequest) {
   try {
@@ -72,12 +79,11 @@ export async function POST(request: NextRequest) {
         { status: 403 }
       );
     }
-    const promptSelect = 'id, system_prompt, methodology, validation_rules';
+    const promptSelect = 'id, system_prompt, methodology';
     let prompt: {
       id: string;
       system_prompt: string;
       methodology: string | null;
-      validation_rules: unknown;
     } | null = null;
     const { data: tenantPrompt, error: tpErr } = await supabase
       .from('prompt_versions')
@@ -310,6 +316,21 @@ export async function POST(request: NextRequest) {
           ]) {
             if (parsedContent[k]) insertData[k] = parsedContent[k];
           }
+          // F-064: anti-AI validation (detective, non-blocking). Extract the
+          // offers-shape fields and append `content._validation`. is_valid=false
+          // does NOT abort, change status, or gate anything (R-14/R-15/R-16).
+          const offerFields = extractOffersFields({
+            ...parsedContent,
+            content: parsedContent
+          });
+          const offerValidation = validate(offerFields, ANTI_AI_RULES, {
+            outputType: 'ofv'
+          });
+          insertData.content = attachValidation(
+            parsedContent,
+            offerValidation,
+            new Date().toISOString()
+          );
         }
         if (step === 'buyer_persona') {
           const { data: lb } = await supabase
@@ -341,6 +362,21 @@ export async function POST(request: NextRequest) {
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle();
+        // F-064: anti-AI validation (detective, non-blocking). Extract the
+        // generated_outputs-shape fields (content string leaves) and append
+        // `content._validation`. is_valid=false does NOT abort/gate (R-14/R-15/R-16).
+        const outputFields = extractGeneratedOutputFields({
+          content: parsedContent,
+          output_type: step
+        });
+        const outputValidation = validate(outputFields, ANTI_AI_RULES, {
+          outputType: step
+        });
+        const validatedContent = attachValidation(
+          parsedContent,
+          outputValidation,
+          new Date().toISOString()
+        );
         const { data, error } = await supabase
           .from('generated_outputs')
           .insert({
@@ -348,7 +384,7 @@ export async function POST(request: NextRequest) {
             offer_id: lo?.id || null,
             prompt_version_id: prompt.id,
             output_type: step,
-            content: parsedContent,
+            content: validatedContent,
             language: (parsedContent?.language as string) || 'es',
             status: 'draft',
             version: 1

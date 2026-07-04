@@ -15,6 +15,7 @@
     "lint:strict": "eslint --max-warnings=0 src",
     "format": "prettier --write .",
     "format:check": "prettier -c -w .",
+    "test": "node --test tests/**/*.test.ts",
     "prepare": "husky"
   },
   "lint-staged": {
