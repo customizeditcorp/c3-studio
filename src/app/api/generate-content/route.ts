@@ -9,6 +9,18 @@ import {
   extractGeneratedOutputFields,
   attachValidation
 } from '@/lib/anti-ai/validator';
+import {
+  QUERY_BY_STEP,
+  fetchRetrieveMethod,
+  selectBudgetedSegments,
+  buildMethodBlock,
+  composeSystemContent,
+  attachMethodGrounding,
+  buildAppliedGrounding,
+  buildUnappliedGrounding,
+  type MethodGrounding,
+  type Step
+} from '@/lib/method-grounding';
 const AI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o';
 export async function POST(request: NextRequest) {
   try {
@@ -126,6 +138,58 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       );
     }
+    // F-065: method grounding (Fase 2). Retrieve canonical C3 method live and
+    // AUGMENT the static system_prompt. Aumentativo, no-bloqueante, degradable:
+    // any failure (guard, timeout, network, http, malformed, empty) -> empty
+    // block + applied=false, generation proceeds with the static prompt (R-08).
+    // Runs BEFORE building `messages` so the system message can be augmented
+    // (R-12). Never aborts/gates/changes status (R-13).
+    const groundingRetrievedAt = new Date().toISOString();
+    const groundingQuery = QUERY_BY_STEP[step as Step];
+    let methodBlock = '';
+    let methodGrounding: MethodGrounding;
+    if (prompt.methodology == null) {
+      methodGrounding = buildUnappliedGrounding({
+        reason: 'no_methodology',
+        methodology_family: null,
+        step,
+        query: null,
+        retrievedAtIso: groundingRetrievedAt
+      });
+    } else if (!groundingQuery) {
+      methodGrounding = buildUnappliedGrounding({
+        reason: 'unknown_step',
+        methodology_family: prompt.methodology,
+        step,
+        query: null,
+        retrievedAtIso: groundingRetrievedAt
+      });
+    } else {
+      const retrieved = await fetchRetrieveMethod({
+        methodology_family: prompt.methodology,
+        step,
+        query: groundingQuery
+      });
+      if (retrieved.ok) {
+        const injected = selectBudgetedSegments(retrieved.segments);
+        methodBlock = buildMethodBlock(retrieved.segments);
+        methodGrounding = buildAppliedGrounding({
+          segments: injected,
+          methodology_family: prompt.methodology,
+          step,
+          query: groundingQuery,
+          retrievedAtIso: groundingRetrievedAt
+        });
+      } else {
+        methodGrounding = buildUnappliedGrounding({
+          reason: retrieved.reason,
+          methodology_family: prompt.methodology,
+          step,
+          query: groundingQuery,
+          retrievedAtIso: groundingRetrievedAt
+        });
+      }
+    }
     let contextChain = '';
     const needsBrief = [
       'buyer_persona',
@@ -231,12 +295,18 @@ export async function POST(request: NextRequest) {
         ? JSON.stringify(input_data, null, 2)
         : 'Sin datos adicionales.') +
       '\n\nGenera el output en formato JSON + raw_text (markdown). Responde SOLO con JSON valido, sin backticks ni texto adicional.';
+    // F-065: augment the static system_prompt with the method block (R-04/R-14).
+    // Empty block -> systemContent === prompt.system_prompt (static intact).
+    const systemContent = composeSystemContent(
+      prompt.system_prompt,
+      methodBlock
+    );
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const completion = await openai.chat.completions.create({
       model: AI_MODEL,
       max_tokens: 4096,
       messages: [
-        { role: 'system', content: prompt.system_prompt },
+        { role: 'system', content: systemContent },
         { role: 'user', content: userMessage }
       ]
     });
@@ -342,6 +412,13 @@ export async function POST(request: NextRequest) {
             .maybeSingle();
           if (lb) insertData.brief_id = lb.id;
         }
+        // F-065: append `content._method_grounding` (additive) AFTER F-064's
+        // attachValidation (where it ran) and BEFORE the insert (R-10/R-11/R-12).
+        // Non-blocking: does not alter status or gate persistence (R-13).
+        insertData.content = attachMethodGrounding(
+          insertData.content as Record<string, unknown>,
+          methodGrounding
+        );
         const { data, error } = await supabase
           .from(table)
           .insert(insertData)
@@ -377,6 +454,12 @@ export async function POST(request: NextRequest) {
           outputValidation,
           new Date().toISOString()
         );
+        // F-065: append `content._method_grounding` (additive) AFTER
+        // attachValidation and BEFORE the insert (R-10/R-11/R-12). Non-blocking.
+        const groundedContent = attachMethodGrounding(
+          validatedContent,
+          methodGrounding
+        );
         const { data, error } = await supabase
           .from('generated_outputs')
           .insert({
@@ -384,7 +467,7 @@ export async function POST(request: NextRequest) {
             offer_id: lo?.id || null,
             prompt_version_id: prompt.id,
             output_type: step,
-            content: validatedContent,
+            content: groundedContent,
             language: (parsedContent?.language as string) || 'es',
             status: 'draft',
             version: 1
