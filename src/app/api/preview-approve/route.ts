@@ -11,7 +11,10 @@ export async function POST(request: NextRequest) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     if (!serviceKey || !url) {
       return NextResponse.json(
-        { error: 'Preview approval is not configured (SUPABASE_SERVICE_ROLE_KEY)' },
+        {
+          error:
+            'Preview approval is not configured (SUPABASE_SERVICE_ROLE_KEY)'
+        },
         { status: 503 }
       );
     }
@@ -30,7 +33,7 @@ export async function POST(request: NextRequest) {
 
     const { data: preview, error: prevErr } = await admin
       .from('previews')
-      .select('id, client_id, expires_at')
+      .select('id, client_id, expires_at, type')
       .eq('token', token)
       .maybeSingle();
 
@@ -39,7 +42,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (new Date(preview.expires_at) < new Date()) {
-      return NextResponse.json({ error: 'Preview link has expired' }, { status: 410 });
+      return NextResponse.json(
+        { error: 'Preview link has expired' },
+        { status: 410 }
+      );
     }
 
     const { data: clientRow } = await admin
@@ -50,7 +56,10 @@ export async function POST(request: NextRequest) {
 
     const tenantId = clientRow?.tenant_id as string | undefined;
     if (!tenantId) {
-      return NextResponse.json({ error: 'Client tenant missing' }, { status: 500 });
+      return NextResponse.json(
+        { error: 'Client tenant missing' },
+        { status: 500 }
+      );
     }
 
     const now = new Date().toISOString();
@@ -68,6 +77,16 @@ export async function POST(request: NextRequest) {
       .from('clients')
       .update({ status: 'onboarding' })
       .eq('id', preview.client_id);
+
+    // F-066 R-13: on GBP preview approval, advance the presence asset to 'approved'.
+    // Scope-limited to asset_type='gbp' (R-14); other preview types are untouched.
+    if (preview.type === 'gbp') {
+      await admin
+        .from('client_assets')
+        .update({ status: 'approved', updated_at: now })
+        .eq('client_id', preview.client_id)
+        .eq('asset_type', 'gbp');
+    }
 
     await admin.from('activity_log').insert({
       tenant_id: tenantId,
