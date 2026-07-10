@@ -20,7 +20,18 @@ import { useUser } from '@/contexts/UserContext';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { logActivity } from '@/lib/activity';
 import { textFromGenerateContentResult } from '@/lib/generate-content-text';
-import { generateContent } from '@/lib/edge-functions';
+import {
+  generateContent,
+  generateGbp,
+  type GenerateGbpSuccess
+} from '@/lib/edge-functions';
+import {
+  derivePrecondition,
+  mapGbpError,
+  offerRowNonEmpty,
+  selectLatestGbpProfile,
+  type PreconditionState
+} from '@/lib/gbp-trigger-state';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
@@ -70,7 +81,10 @@ export default function GBPPage() {
   const { tenantId, user, loading: userLoading } = useUser();
   const supabase = createSupabaseClient();
 
-  const [client, setClient] = useState<{ id: string; business_name: string } | null>(null);
+  const [client, setClient] = useState<{
+    id: string;
+    business_name: string;
+  } | null>(null);
   const [gbpProfileId, setGbpProfileId] = useState<string | null>(null);
   const [posts, setPosts] = useState<GbpPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -97,6 +111,20 @@ export default function GBPPage() {
   const [generatingPost, setGeneratingPost] = useState(false);
   const [postTopic, setPostTopic] = useState('');
 
+  // F-067 — GBP slice generation trigger state
+  const [precondition, setPrecondition] = useState<PreconditionState>({
+    enabled: false,
+    reason: null
+  });
+  const [gbpAssetStatus, setGbpAssetStatus] = useState<string | null>(null);
+  const [generatingGbp, setGeneratingGbp] = useState(false);
+  const [gbpGenResult, setGbpGenResult] = useState<GenerateGbpSuccess | null>(
+    null
+  );
+
+  // R-11 — asset states that mean the slice already produced output for this client.
+  const EXISTING_ASSET_STATES = ['review', 'approved', 'live'];
+
   useEffect(() => {
     if (!userLoading && tenantId && clientId) {
       loadData();
@@ -117,11 +145,16 @@ export default function GBPPage() {
       setPhone(clientData.phone || '');
     }
 
-    const { data: gbpData } = await supabase
+    // R-15 (T-15) — tolerate ≥1 gbp_profiles row: take the most recent instead of
+    // `.single()` (which throws on >1). Root cause (route insert-vs-upsert) is
+    // deferred F-066 debt; this only makes the page robust.
+    const { data: gbpRows } = await supabase
       .from('gbp_profiles')
       .select('*')
       .eq('client_id', clientId)
-      .single();
+      .order('created_at', { ascending: false })
+      .limit(1);
+    const gbpData = selectLatestGbpProfile(gbpRows);
 
     if (gbpData) {
       setGbpProfileId(gbpData.id);
@@ -147,6 +180,43 @@ export default function GBPPage() {
       .order('created_at', { ascending: false });
 
     if (postsData) setPosts(postsData);
+
+    // F-067 T-03 (R-03) — read approved OFV (non-empty) + approved brandboard to
+    // derive the trigger's enabled state, mirroring clients/[id]/page.tsx:134-151.
+    const [{ data: approvedOffers }, { data: approvedBrandboard }] =
+      await Promise.all([
+        supabase
+          .from('offers')
+          .select('big_promise, content')
+          .eq('client_id', clientId)
+          .eq('status', 'approved'),
+        supabase
+          .from('brandboards')
+          .select('id')
+          .eq('client_id', clientId)
+          .eq('status', 'approved')
+          .limit(1)
+          .maybeSingle()
+      ]);
+
+    const offerApprovedNonEmpty = (approvedOffers ?? []).some(offerRowNonEmpty);
+    setPrecondition(
+      derivePrecondition({
+        offerApprovedNonEmpty,
+        brandboardApproved: !!approvedBrandboard
+      })
+    );
+
+    // R-11 — read the gbp asset status to know if a confirmation is needed on regenerate.
+    const { data: gbpAsset } = await supabase
+      .from('client_assets')
+      .select('status')
+      .eq('client_id', clientId)
+      .eq('asset_type', 'gbp')
+      .limit(1)
+      .maybeSingle();
+    setGbpAssetStatus(gbpAsset?.status ?? null);
+
     setLoading(false);
   };
 
@@ -173,10 +243,7 @@ export default function GBPPage() {
 
     try {
       if (gbpProfileId) {
-        await supabase
-          .from('gbp_profiles')
-          .update(data)
-          .eq('id', gbpProfileId);
+        await supabase.from('gbp_profiles').update(data).eq('id', gbpProfileId);
       } else {
         const { data: newProfile } = await supabase
           .from('gbp_profiles')
@@ -265,7 +332,9 @@ export default function GBPPage() {
       }
     } catch (error) {
       console.error('Error generating description:', error);
-      toast.error(`Error al generar la descripción: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+      toast.error(
+        `Error al generar la descripción: ${error instanceof Error ? error.message : 'Error desconocido'}`
+      );
     } finally {
       setGeneratingDescription(false);
     }
@@ -290,9 +359,56 @@ export default function GBPPage() {
       }
     } catch (error) {
       console.error('Error generating post:', error);
-      toast.error(`Error al generar el post: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+      toast.error(
+        `Error al generar el post: ${error instanceof Error ? error.message : 'Error desconocido'}`
+      );
     } finally {
       setGeneratingPost(false);
+    }
+  };
+
+  // F-067 T-05/T-06/T-07 — trigger the GBP slice generation and drive the state machine.
+  const handleGenerateGbp = async () => {
+    // Guard: only fire when precondition met and not already in flight (R-04).
+    if (!precondition.enabled || generatingGbp) return;
+
+    // R-11 — confirm before regenerating when a profile/preview already exists,
+    // to avoid duplicate `gbp_profiles` rows and redundant OpenAI spend.
+    const alreadyExists =
+      !!gbpProfileId || EXISTING_ASSET_STATES.includes(gbpAssetStatus ?? '');
+    if (alreadyExists) {
+      const proceed = window.confirm(
+        'Ya existe un perfil GBP (o preview) para este cliente. Generar de nuevo ' +
+          'creará una versión nueva y consumirá una llamada de IA. ¿Continuar?'
+      );
+      if (!proceed) return; // cancel -> never calls the route (R-11 / T-12).
+    }
+
+    setGeneratingGbp(true); // loading: button disabled + spinner, blocks double submit (R-04).
+    setGbpGenResult(null);
+    try {
+      const result = await generateGbp(clientId); // exactly one call (R-04).
+
+      if (result.ok) {
+        // R-05 — success: expose profile id, preview confirmation + link to /preview/[token].
+        setGbpGenResult(result.data);
+        toast.success('Perfil GBP generado. Revisa el preview.');
+        await loadData(); // refresh so the new profile/asset status reflects immediately.
+      } else {
+        // R-06..R-10 — differentiated error by HTTP code / reason.
+        const mapped = mapGbpError({
+          status: result.status,
+          blocked: result.blocked,
+          reason: result.reason
+        });
+        toast.error(mapped.message);
+        // `blocked` and every mapped error simply return the button to idle.
+      }
+    } catch (error) {
+      console.error('Error generating GBP profile:', error);
+      toast.error('Error de red al generar el perfil GBP. Reintenta.');
+    } finally {
+      setGeneratingGbp(false);
     }
   };
 
@@ -329,7 +445,64 @@ export default function GBPPage() {
           </TabsList>
 
           {/* GBP Profile Tab */}
-          <TabsContent value='profile' className='mt-4 space-y-4 max-w-3xl'>
+          <TabsContent value='profile' className='mt-4 max-w-3xl space-y-4'>
+            {/* F-067 — GBP slice generation trigger (single control, R-02) */}
+            <Card>
+              <CardHeader>
+                <CardTitle className='text-base'>
+                  Generar perfil GBP con IA
+                </CardTitle>
+              </CardHeader>
+              <CardContent className='space-y-3'>
+                <p className='text-muted-foreground text-sm'>
+                  Genera un perfil GBP completo a partir de la OFV aprobada y el
+                  brandboard del cliente. Crea un preview para revisión.
+                </p>
+                <Button
+                  type='button'
+                  onClick={handleGenerateGbp}
+                  disabled={!precondition.enabled || generatingGbp}
+                >
+                  {generatingGbp ? (
+                    <>
+                      <Icons.spinner className='mr-2 h-4 w-4 animate-spin' />
+                      Generando...
+                    </>
+                  ) : (
+                    '✨ Generar perfil GBP con IA'
+                  )}
+                </Button>
+
+                {/* R-03 — disabled + specific block motive (🔒) */}
+                {!precondition.enabled && precondition.reason && (
+                  <p className='text-muted-foreground text-xs'>
+                    🔒 {precondition.reason}
+                  </p>
+                )}
+
+                {/* R-05 — success state: profile id + preview confirmation + link */}
+                {gbpGenResult && (
+                  <div className='rounded-md border border-green-200 bg-green-50 p-3 text-sm dark:border-green-900 dark:bg-green-950'>
+                    <p className='font-medium text-green-800 dark:text-green-300'>
+                      Perfil GBP generado
+                    </p>
+                    <p className='text-muted-foreground mt-1 text-xs'>
+                      Perfil: {gbpGenResult.gbp_profile.id} · Preview creado
+                      correctamente.
+                    </p>
+                    <a
+                      href={gbpGenResult.preview.url}
+                      target='_blank'
+                      rel='noopener noreferrer'
+                      className='mt-2 inline-block text-sm font-medium text-green-700 underline dark:text-green-400'
+                    >
+                      Abrir preview →
+                    </a>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader>
                 <CardTitle className='text-base'>
@@ -380,7 +553,7 @@ export default function GBPPage() {
                   <div className='flex items-center justify-between'>
                     <Label>
                       Descripción{' '}
-                      <span className='text-xs text-muted-foreground'>
+                      <span className='text-muted-foreground text-xs'>
                         ({description.length}/750)
                       </span>
                     </Label>
@@ -433,7 +606,7 @@ export default function GBPPage() {
                     <div key={day} className='flex items-center gap-3'>
                       <span className='w-24 text-sm font-medium'>{day}</span>
                       <Input
-                        className='flex-1 h-8 text-sm'
+                        className='h-8 flex-1 text-sm'
                         value={hours[DAYS_EN[i]] || ''}
                         onChange={(e) =>
                           setHours((prev) => ({
@@ -452,7 +625,9 @@ export default function GBPPage() {
             {/* Attributes */}
             <Card>
               <CardHeader>
-                <CardTitle className='text-base'>Atributos del negocio</CardTitle>
+                <CardTitle className='text-base'>
+                  Atributos del negocio
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className='grid gap-3 sm:grid-cols-2'>
@@ -481,7 +656,7 @@ export default function GBPPage() {
           </TabsContent>
 
           {/* Posts Tab */}
-          <TabsContent value='posts' className='mt-4 space-y-4 max-w-3xl'>
+          <TabsContent value='posts' className='mt-4 max-w-3xl space-y-4'>
             {/* Create Post */}
             <Card>
               <CardHeader>
@@ -494,7 +669,7 @@ export default function GBPPage() {
                     value={postTopic}
                     onChange={(e) => setPostTopic(e.target.value)}
                     placeholder='Tema del post (ej: promo verano, trabajo completado...)'
-                    className='h-8 text-sm flex-1'
+                    className='h-8 flex-1 text-sm'
                   />
                   <Button
                     type='button'
@@ -524,7 +699,7 @@ export default function GBPPage() {
                   <div className='space-y-1'>
                     <Label className='text-xs'>CTA</Label>
                     <Select value={newPostCta} onValueChange={setNewPostCta}>
-                      <SelectTrigger className='w-40 h-8 text-sm'>
+                      <SelectTrigger className='h-8 w-40 text-sm'>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -549,7 +724,7 @@ export default function GBPPage() {
 
             {/* Posts List */}
             {posts.length === 0 ? (
-              <div className='text-center py-8'>
+              <div className='py-8 text-center'>
                 <p className='text-muted-foreground'>
                   No hay publicaciones todavía
                 </p>
@@ -560,7 +735,7 @@ export default function GBPPage() {
                   <Card key={post.id}>
                     <CardContent className='pt-4'>
                       <div className='flex items-start justify-between gap-3'>
-                        <p className='text-sm flex-1'>{post.content}</p>
+                        <p className='flex-1 text-sm'>{post.content}</p>
                         <div className='flex flex-col items-end gap-1'>
                           <Badge
                             variant={
@@ -578,12 +753,12 @@ export default function GBPPage() {
                                 ? 'Aprobado'
                                 : 'Borrador'}
                           </Badge>
-                          <span className='text-xs text-muted-foreground'>
+                          <span className='text-muted-foreground text-xs'>
                             CTA: {post.cta_type}
                           </span>
                         </div>
                       </div>
-                      <p className='text-xs text-muted-foreground mt-2'>
+                      <p className='text-muted-foreground mt-2 text-xs'>
                         {new Date(post.created_at).toLocaleDateString('es-MX')}
                       </p>
                     </CardContent>
