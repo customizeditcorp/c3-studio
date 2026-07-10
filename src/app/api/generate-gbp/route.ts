@@ -235,13 +235,13 @@ export async function POST(request: NextRequest) {
     const completion = await openai.chat.completions.create({
       model: AI_MODEL,
       max_tokens: 4096,
+      response_format: { type: 'json_object' }, // R-06: the prompt mandates "SOLO JSON"; make it contractual (parser also strips fences defensively)
       messages: [
         { role: 'system', content: systemContent },
         { role: 'user', content: userMessage }
       ]
     });
     const responseText = completion.choices[0]?.message?.content || '';
-    console.error('[generate-gbp raw]', responseText); // F-070 Fase 0 (R-01): observabilidad temporal del raw OpenAI — retirar tras cerrar Fase 0 (T-3)
 
     // R-11: fail explicit BEFORE any write on malformed/incomplete output.
     let profileRow;
@@ -261,7 +261,10 @@ export async function POST(request: NextRequest) {
     // --- Persist gbp_profiles (R-10) ---
     const { data: savedProfile, error: profileErr } = await supabase
       .from('gbp_profiles')
-      .insert(profileRow)
+      .upsert(
+        { ...profileRow, updated_at: new Date().toISOString() },
+        { onConflict: 'client_id' }
+      ) // R-08 (CL-033): idempotent regeneration; UNIQUE(client_id) -> update the single row instead of colliding (Postgres 23505)
       .select()
       .single();
     if (profileErr) {
