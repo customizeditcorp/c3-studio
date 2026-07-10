@@ -241,6 +241,7 @@ export async function POST(request: NextRequest) {
       ]
     });
     const responseText = completion.choices[0]?.message?.content || '';
+    console.error('[generate-gbp raw]', responseText); // F-070 Fase 0 (R-01): observabilidad temporal del raw OpenAI — retirar tras cerrar Fase 0 (T-3)
 
     // R-11: fail explicit BEFORE any write on malformed/incomplete output.
     let profileRow;
