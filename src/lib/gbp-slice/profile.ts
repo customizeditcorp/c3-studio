@@ -64,6 +64,47 @@ function nonEmptyValue(v: unknown): boolean {
   return true;
 }
 
+/** Coerces a jsonb value (expected: string[]) into a filtered string array. */
+function toCityArray(v: unknown): string[] {
+  return Array.isArray(v) ? (v.filter(nonEmptyString) as string[]) : [];
+}
+
+/**
+ * R-06 — Maps the model's category keys to the domain shape. The live raw (Fase 0)
+ * shows OpenAI emits `suggested_categories: string[]`; a legacy `primary_category`
+ * (+ `secondary_categories`) shape is accepted as a robust fallback (map-in-parser:
+ * we do not depend on the model emitting exact keys).
+ */
+function mapCategories(parsed: Record<string, unknown>): {
+  primary: string | undefined;
+  secondary: string[];
+} {
+  const source: unknown[] = Array.isArray(parsed.suggested_categories)
+    ? (parsed.suggested_categories as unknown[])
+    : [
+        parsed.primary_category,
+        ...(Array.isArray(parsed.secondary_categories)
+          ? (parsed.secondary_categories as unknown[])
+          : [])
+      ];
+  const categories = source.filter(nonEmptyString) as string[];
+  return { primary: categories[0], secondary: categories.slice(1) };
+}
+
+/**
+ * R-04/R-05 — Effective `service_area`: use the model's value if non-empty; else
+ * seed from `client.service_area_cities` as `{ cities: [...] }`. Returns `undefined`
+ * when neither source is available, so the R-11 guard aborts before any write.
+ */
+function computeServiceArea(
+  fromModel: unknown,
+  clientCities: unknown
+): unknown | undefined {
+  if (nonEmptyValue(fromModel)) return fromModel;
+  const cities = toCityArray(clientCities);
+  return cities.length > 0 ? { cities } : undefined;
+}
+
 /**
  * Validates client readiness AND the generated content, then maps to the insert
  * shape. Throws `GbpDomainError` listing every missing required field BEFORE
@@ -74,16 +115,38 @@ export function toGbpProfileRow(
   parsed: Record<string, unknown>,
   ctx: GbpContext
 ): GbpProfileInsert {
-  // R-11: required client field(s). business_name is NOT NULL on `clients`.
+  // R-03/R-11: business_name is CLIENT-sourced (NOT NULL on `clients`), never decided
+  // by the model. Abort before any write if the client field is missing.
   if (!nonEmptyString(ctx.client.business_name)) {
     throw new GbpDomainError(
       'Cliente sin business_name: entrada requerida incompleta; aborta antes de escribir (R-11).'
     );
   }
 
+  // R-04/R-06: map the model's REAL keys to the final domain values BEFORE validating,
+  // so the R-11 guard checks the mapped values — not the raw output keys.
+  const { primary: primaryCategory, secondary: secondaryCategories } =
+    mapCategories(parsed);
+  const services = nonEmptyValue(parsed.suggested_services)
+    ? parsed.suggested_services
+    : parsed.services;
+  const serviceArea = computeServiceArea(
+    parsed.service_area,
+    ctx.client.service_area_cities
+  );
+
+  // R-05/R-07/R-11: fail-explicit before write if any FINAL required field is empty
+  // (incl. service_area with no source, and genuinely-generated content fields).
+  const finalValues: Record<string, unknown> = {
+    primary_category: primaryCategory,
+    description: parsed.description,
+    short_description: parsed.short_description,
+    services,
+    service_area: serviceArea
+  };
   const missing: string[] = [];
   for (const field of GBP_REQUIRED_FIELDS) {
-    if (!nonEmptyValue(parsed[field])) missing.push(field);
+    if (!nonEmptyValue(finalValues[field])) missing.push(field);
   }
   if (missing.length > 0) {
     throw new GbpDomainError(
@@ -93,19 +156,15 @@ export function toGbpProfileRow(
     );
   }
 
-  const secondary = Array.isArray(parsed.secondary_categories)
-    ? (parsed.secondary_categories as unknown[]).filter(nonEmptyString)
-    : [];
-
   return {
     client_id: clientId,
-    business_name: parsed.business_name as string,
-    primary_category: parsed.primary_category as string,
-    secondary_categories: secondary as string[],
+    business_name: ctx.client.business_name,
+    primary_category: primaryCategory as string,
+    secondary_categories: secondaryCategories,
     description: parsed.description as string,
     short_description: parsed.short_description as string,
-    services: parsed.services,
-    service_area: parsed.service_area,
+    services,
+    service_area: serviceArea,
     from_the_business: nonEmptyString(parsed.from_the_business)
       ? (parsed.from_the_business as string)
       : null,

@@ -8,9 +8,9 @@
  */
 import type { GbpContext } from './context.ts';
 
-/** Fields the generated GBP JSON must contain (R-10). */
+/** Final required GBP fields validated before write (R-10/R-11). `business_name` is
+ * NOT here: it is client-sourced (R-03), not decided by the model output. */
 export const GBP_REQUIRED_FIELDS = [
-  'business_name',
   'primary_category',
   'description',
   'short_description',
