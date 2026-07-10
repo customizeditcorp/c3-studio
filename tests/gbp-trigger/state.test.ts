@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {
   derivePrecondition,
   mapGbpError,
+  needsRegenerateConfirm,
   offerRowNonEmpty,
   selectLatestGbpProfile
 } from '../../src/lib/gbp-trigger-state.ts';
@@ -138,4 +139,57 @@ test('R-15 ≥2 rows -> most recent by created_at (tolerates duplicates)', () =>
   const newer = { id: 'new', created_at: '2026-07-08T12:00:00Z' };
   assert.equal(selectLatestGbpProfile([older, newer])?.id, 'new');
   assert.equal(selectLatestGbpProfile([newer, older])?.id, 'new');
+});
+
+// --- F-068 R-01/R-05/R-06: needsRegenerateConfirm ----------------------------
+// Preserves the exact anti-dup boolean algebra of F-067 R-11 (was inline in page).
+
+test('F-068 R-05 no profile and no existing asset -> false (fire directly)', () => {
+  assert.equal(
+    needsRegenerateConfirm({ gbpProfileId: null, gbpAssetStatus: null }),
+    false
+  );
+});
+
+test('F-068 R-01 existing gbpProfileId -> true (must confirm)', () => {
+  assert.equal(
+    needsRegenerateConfirm({ gbpProfileId: 'p1', gbpAssetStatus: null }),
+    true
+  );
+});
+
+test('F-068 R-01 asset status in {review,approved,live} -> true', () => {
+  for (const status of ['review', 'approved', 'live']) {
+    assert.equal(
+      needsRegenerateConfirm({ gbpProfileId: null, gbpAssetStatus: status }),
+      true,
+      `status ${status} should require confirm`
+    );
+  }
+});
+
+test('F-068 R-05/R-06 draft/null/unknown status without profile -> false', () => {
+  assert.equal(
+    needsRegenerateConfirm({ gbpProfileId: null, gbpAssetStatus: 'draft' }),
+    false
+  );
+  assert.equal(
+    needsRegenerateConfirm({ gbpProfileId: null, gbpAssetStatus: '' }),
+    false
+  );
+  assert.equal(
+    needsRegenerateConfirm({ gbpProfileId: null, gbpAssetStatus: 'weird' }),
+    false
+  );
+});
+
+test('F-068 custom existingAssetStates override is honored', () => {
+  assert.equal(
+    needsRegenerateConfirm({
+      gbpProfileId: null,
+      gbpAssetStatus: 'draft',
+      existingAssetStates: ['draft']
+    }),
+    true
+  );
 });
