@@ -28,10 +28,23 @@ import {
 import {
   derivePrecondition,
   mapGbpError,
+  needsRegenerateConfirm,
   offerRowNonEmpty,
+  parseServiceArea,
   selectLatestGbpProfile,
+  serializeServiceArea,
   type PreconditionState
 } from '@/lib/gbp-trigger-state';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
@@ -99,7 +112,9 @@ export default function GBPPage() {
   const [address, setAddress] = useState('');
   const [attributes, setAttributes] = useState<string[]>([]);
   const [hours, setHours] = useState<Record<string, string>>({});
-  const [serviceArea, setServiceArea] = useState('');
+  // F-068 CL-036 — service_area jsonb {notes, cities} split into two editable inputs.
+  const [serviceAreaNotes, setServiceAreaNotes] = useState('');
+  const [serviceAreaCities, setServiceAreaCities] = useState('');
 
   // Post form state
   const [newPostContent, setNewPostContent] = useState('');
@@ -121,9 +136,8 @@ export default function GBPPage() {
   const [gbpGenResult, setGbpGenResult] = useState<GenerateGbpSuccess | null>(
     null
   );
-
-  // R-11 — asset states that mean the slice already produced output for this client.
-  const EXISTING_ASSET_STATES = ['review', 'approved', 'live'];
+  // F-068 CL-035 — controls the in-app anti-dup confirmation modal (replaces the native confirm() dialog).
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (!userLoading && tenantId && clientId) {
@@ -166,11 +180,11 @@ export default function GBPPage() {
       setAddress(gbpData.address || '');
       setAttributes(gbpData.attributes || []);
       setHours(gbpData.hours || {});
-      setServiceArea(
-        Array.isArray(gbpData.service_area)
-          ? gbpData.service_area.join(', ')
-          : gbpData.service_area || ''
-      );
+      // F-068 CL-036 — null-safe parse of jsonb {notes, cities} into two sub-fields
+      // (object/array/string/null/unknown all handled; never renders [object Object]).
+      const sa = parseServiceArea(gbpData.service_area);
+      setServiceAreaNotes(sa.notes);
+      setServiceAreaCities(sa.cities);
     }
 
     const { data: postsData } = await supabase
@@ -234,10 +248,9 @@ export default function GBPPage() {
       address,
       attributes,
       hours,
-      service_area: serviceArea
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
+      // F-068 CL-036 — round-trip back to jsonb {notes, cities:string[]} (or null if
+      // both sub-fields empty); never a flat string[], never blind String/JSON.stringify.
+      service_area: serializeServiceArea(serviceAreaNotes, serviceAreaCities),
       updated_at: new Date().toISOString()
     };
 
@@ -368,22 +381,26 @@ export default function GBPPage() {
   };
 
   // F-067 T-05/T-06/T-07 — trigger the GBP slice generation and drive the state machine.
-  const handleGenerateGbp = async () => {
-    // Guard: only fire when precondition met and not already in flight (R-04).
+  // F-068 CL-035 — click intent only: guard + decide whether to confirm (modal) or fire.
+  const handleGenerateGbp = () => {
+    // Guard: only fire when precondition met and not already in flight (F-067 R-04).
     if (!precondition.enabled || generatingGbp) return;
 
-    // R-11 — confirm before regenerating when a profile/preview already exists,
-    // to avoid duplicate `gbp_profiles` rows and redundant OpenAI spend.
-    const alreadyExists =
-      !!gbpProfileId || EXISTING_ASSET_STATES.includes(gbpAssetStatus ?? '');
-    if (alreadyExists) {
-      const proceed = window.confirm(
-        'Ya existe un perfil GBP (o preview) para este cliente. Generar de nuevo ' +
-          'creará una versión nueva y consumirá una llamada de IA. ¿Continuar?'
-      );
-      if (!proceed) return; // cancel -> never calls the route (R-11 / T-12).
+    // F-068 R-01/R-05 — if a profile/preview already exists, open the in-app modal
+    // and return WITHOUT calling the route (preserves the anti-dup semantics of
+    // F-067 R-11; replaces the blocking, non-automatable native confirm() of CL-035).
+    if (needsRegenerateConfirm({ gbpProfileId, gbpAssetStatus })) {
+      setConfirmOpen(true);
+      return;
     }
 
+    // F-068 R-05 — first generation (no profile/asset): fire directly, no modal.
+    runGenerateGbp();
+  };
+
+  // F-068 CL-035 — the real effect: exactly one route call + the state machine.
+  // This is the previous `handleGenerateGbp` try/finally body, unchanged in behavior.
+  const runGenerateGbp = async () => {
     setGeneratingGbp(true); // loading: button disabled + spinner, blocks double submit (R-04).
     setGbpGenResult(null);
     try {
@@ -500,6 +517,36 @@ export default function GBPPage() {
                     </a>
                   </div>
                 )}
+
+                {/* F-068 CL-035 — in-app anti-dup confirmation (replaces the native confirm() dialog).
+                    Non-blocking + automatable: state controlled by `confirmOpen`. */}
+                <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>
+                        Ya existe un perfil GBP
+                      </AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Ya existe un perfil GBP (o preview) para este cliente.
+                        Generar de nuevo creará una versión nueva y consumirá
+                        una llamada de IA. ¿Continuar?
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      {/* Cancel / Escape / overlay -> close, NEVER call the route (R-03). */}
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      {/* Confirm -> close + exactly one route call (R-02). */}
+                      <AlertDialogAction
+                        onClick={() => {
+                          setConfirmOpen(false);
+                          runGenerateGbp();
+                        }}
+                      >
+                        Continuar
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </CardContent>
             </Card>
 
@@ -584,11 +631,22 @@ export default function GBPPage() {
                     rows={4}
                   />
                 </div>
+                {/* F-068 CL-036 — service_area jsonb {notes, cities} as two inputs */}
                 <div className='space-y-2 sm:col-span-2'>
-                  <Label>Área de servicio (ciudades separadas por coma)</Label>
+                  <Label>Área de servicio — nota</Label>
                   <Input
-                    value={serviceArea}
-                    onChange={(e) => setServiceArea(e.target.value)}
+                    value={serviceAreaNotes}
+                    onChange={(e) => setServiceAreaNotes(e.target.value)}
+                    placeholder='Costa Central, CA'
+                  />
+                </div>
+                <div className='space-y-2 sm:col-span-2'>
+                  <Label>
+                    Área de servicio — ciudades (separadas por coma)
+                  </Label>
+                  <Input
+                    value={serviceAreaCities}
+                    onChange={(e) => setServiceAreaCities(e.target.value)}
                     placeholder='Santa Maria, Lompoc, Orcutt, Guadalupe'
                   />
                 </div>
