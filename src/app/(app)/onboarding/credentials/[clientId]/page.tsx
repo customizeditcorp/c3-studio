@@ -22,57 +22,13 @@ import { logActivity } from '@/lib/activity';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
-
-const CHECKLIST_ITEMS = [
-  {
-    id: 'google_account',
-    label: 'Google Account (Gmail)',
-    required: true,
-    description: 'Cuenta Google del negocio'
-  },
-  {
-    id: 'gbp_access',
-    label: 'Acceso a Google Business Profile',
-    required: true,
-    description: 'Acceso al GBP del negocio'
-  },
-  {
-    id: 'cslb_license',
-    label: 'Licencia CSLB',
-    required: false,
-    description: 'Número de licencia CSLB de California'
-  },
-  {
-    id: 'city_license',
-    label: 'Licencia de la ciudad',
-    required: false,
-    description: 'Licencia municipal del negocio'
-  },
-  {
-    id: 'sos_registration',
-    label: 'Registro CA SOS',
-    required: false,
-    description: 'Registro con el Secretario de Estado de California'
-  },
-  {
-    id: 'website_access',
-    label: 'Acceso al sitio web',
-    required: false,
-    description: 'Credenciales del sitio web / hosting'
-  },
-  {
-    id: 'social_media',
-    label: 'Redes Sociales',
-    required: false,
-    description: 'Facebook, Instagram, etc.'
-  },
-  {
-    id: 'domain_access',
-    label: 'Acceso al dominio',
-    required: false,
-    description: 'GoDaddy, Namecheap, Cloudflare, etc.'
-  }
-];
+import type { SosStatus } from '@/types/c3-domain';
+import {
+  CREDENTIALS_CHECKLIST as CHECKLIST_ITEMS,
+  SOS_STATUS_OPTIONS,
+  buildCredentialsPayload,
+  parseCredentialsRow
+} from '@/lib/onboarding/credentials';
 
 export default function CredentialsPage() {
   const { clientId } = useParams<{ clientId: string }>();
@@ -89,6 +45,10 @@ export default function CredentialsPage() {
   const [cslbNumber, setCslbNumber] = useState('');
   const [cityLicense, setCityLicense] = useState('');
   const [checklist, setChecklist] = useState<Record<string, boolean>>({});
+  // F-078 (R-16): per-client LEGAL signal capture, inherited by the readiness engine.
+  const [sosStatus, setSosStatus] = useState<SosStatus>('unknown');
+  const [cslbActive, setCslbActive] = useState(false);
+  const [legalNameVerified, setLegalNameVerified] = useState(false);
   const [credentialId, setCredentialId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -122,14 +82,13 @@ export default function CredentialsPage() {
       setDbaNumber(credData.dba_number || '');
       setCslbNumber(credData.cslb_number || '');
       setCityLicense(credData.city_license || '');
-      // Parse checklist from items_completed
-      if (credData.items_completed) {
-        const items: Record<string, boolean> = {};
-        (credData.items_completed as string[]).forEach((item: string) => {
-          items[item] = true;
-        });
-        setChecklist(items);
-      }
+      // Reconciled to the real schema (R-18/R-19): `items_completed` is an INTEGER
+      // now; parse defensively (handles a legacy array) and load the legal signals.
+      const parsed = parseCredentialsRow(credData as Record<string, unknown>);
+      setChecklist(parsed.checklist);
+      setSosStatus(parsed.sosStatus);
+      setCslbActive(parsed.cslbActive);
+      setLegalNameVerified(parsed.legalNameVerified);
     }
     setLoading(false);
   };
@@ -150,27 +109,26 @@ export default function CredentialsPage() {
   const autoSave = async (newChecklist: Record<string, boolean>) => {
     if (!tenantId || !user) return;
 
-    const completedItems = Object.entries(newChecklist)
-      .filter(([, v]) => v)
-      .map(([k]) => k);
-
-    const data = {
-      client_id: clientId,
-      entity_type: entityType,
-      legal_name: legalName,
-      dba_number: dbaNumber,
-      cslb_number: cslbNumber,
-      city_license: cityLicense,
-      items_completed: completedItems,
-      items_total: CHECKLIST_ITEMS.length,
-      updated_at: new Date().toISOString()
-    };
+    // Reconciled to the REAL `credentials` schema (R-18/R-16): `items_completed` is
+    // written as the INTEGER count; no `items_total` column; legal signals captured.
+    const data = buildCredentialsPayload({
+      clientId,
+      entityType,
+      legalName,
+      dbaNumber,
+      cslbNumber,
+      cityLicense,
+      checklist: newChecklist,
+      sosStatus,
+      cslbActive,
+      legalNameVerified
+    });
 
     try {
       if (credentialId) {
         await supabase
           .from('credentials')
-          .update(data)
+          .update({ ...data, updated_at: new Date().toISOString() })
           .eq('id', credentialId);
       } else {
         const { data: newCred } = await supabase
@@ -188,7 +146,7 @@ export default function CredentialsPage() {
         entityType: 'credential',
         entityId: credentialId || clientId,
         clientId,
-        metadata: { items_completed: completedItems.length }
+        metadata: { items_completed: data.items_completed }
       });
     } catch (error) {
       console.error('Error auto-saving credentials:', error);
@@ -216,11 +174,11 @@ export default function CredentialsPage() {
       pageTitle={`Credenciales — ${client?.business_name || clientId}`}
       pageDescription='Checklist de credenciales para onboarding'
     >
-      <div className='flex flex-1 flex-col gap-4 p-4 md:px-6 max-w-3xl'>
+      <div className='flex max-w-3xl flex-1 flex-col gap-4 p-4 md:px-6'>
         {/* Progress */}
         <Card>
           <CardContent className='pt-4'>
-            <div className='flex items-center justify-between mb-2'>
+            <div className='mb-2 flex items-center justify-between'>
               <span className='text-sm font-medium'>
                 {completedCount} / {CHECKLIST_ITEMS.length} completado
               </span>
@@ -310,10 +268,79 @@ export default function CredentialsPage() {
           </CardContent>
         </Card>
 
+        {/* Legal signals (F-078 R-16): per-client evidence inherited by readiness */}
+        <Card>
+          <CardHeader>
+            <CardTitle className='text-base'>
+              Señales legales (elegibilidad)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className='space-y-4'>
+            <div className='space-y-2'>
+              <Label>Estado de la entidad (CA SOS)</Label>
+              <Select
+                value={sosStatus}
+                onValueChange={(v) => setSosStatus(v as SosStatus)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SOS_STATUS_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className='flex items-start gap-3 rounded-lg border p-3'>
+              <Checkbox
+                id='cslb_active'
+                checked={cslbActive}
+                onCheckedChange={(c) => setCslbActive(!!c)}
+                className='mt-0.5'
+              />
+              <div className='flex-1'>
+                <Label
+                  htmlFor='cslb_active'
+                  className='cursor-pointer font-medium'
+                >
+                  Licencia CSLB activa
+                </Label>
+                <p className='text-muted-foreground mt-0.5 text-xs'>
+                  La licencia CSLB está vigente y activa
+                </p>
+              </div>
+            </div>
+            <div className='flex items-start gap-3 rounded-lg border p-3'>
+              <Checkbox
+                id='legal_name_verified'
+                checked={legalNameVerified}
+                onCheckedChange={(c) => setLegalNameVerified(!!c)}
+                className='mt-0.5'
+              />
+              <div className='flex-1'>
+                <Label
+                  htmlFor='legal_name_verified'
+                  className='cursor-pointer font-medium'
+                >
+                  Nombre legal verificado
+                </Label>
+                <p className='text-muted-foreground mt-0.5 text-xs'>
+                  El nombre legal coincide con el registro oficial
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Checklist */}
         <Card>
           <CardHeader>
-            <CardTitle className='text-base'>Checklist de credenciales</CardTitle>
+            <CardTitle className='text-base'>
+              Checklist de credenciales
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className='space-y-3'>
@@ -344,7 +371,7 @@ export default function CredentialsPage() {
                         </Badge>
                       )}
                     </div>
-                    <p className='text-xs text-muted-foreground mt-0.5'>
+                    <p className='text-muted-foreground mt-0.5 text-xs'>
                       {item.description}
                     </p>
                   </div>

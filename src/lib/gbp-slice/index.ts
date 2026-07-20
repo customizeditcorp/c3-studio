@@ -55,3 +55,22 @@ export {
   SLICE_ASSET_TYPE,
   type GbpProfileInsert
 } from './profile.ts';
+// F-078 — Readiness core (veredicto de elegibilidad GBP).
+export {
+  computeReadiness,
+  type ReadinessLegalInput,
+  type ReadinessPresenceInput,
+  type ReadinessSnapshot,
+  type ReadinessResult
+} from './readiness.ts';
+export {
+  assessReadiness,
+  getLatestReadiness,
+  buildReadinessInputs,
+  mapDuplicateStatus,
+  createSupabaseReadinessStore,
+  type ReadinessStore,
+  type ReadinessEvidence,
+  type ReadinessAssessmentInsert,
+  type LocationRef
+} from './readiness-repo.ts';

@@ -156,17 +156,104 @@ export interface ClientPhoto {
   created_at: string;
 }
 
+/** NAP consistency risk enum (`nap_risk` in Supabase). */
+export type NapRisk = 'consistent' | 'partial' | 'inconsistent';
+
+/** `nap_checks` — columns mirror the LIVE schema (uxczbwtfcsjsrmrikwoh, 2026-07-17).
+ * NOTE: there is NO `tenant_id` column; isolation is via join to `clients`. */
 export interface NAPCheck {
   id: string;
   client_id: string;
-  tenant_id: string;
+  checked_by: string | null;
+  google_name_match: boolean | null;
+  cslb_name_match: boolean | null;
+  address_consistent: boolean | null;
+  phone_consistent: boolean | null;
+  cslb_active: boolean | null;
+  entity_verified: boolean | null;
+  items_passed: number | null;
+  risk_level: NapRisk | null;
+  notes: string | null;
   created_at: string;
+  updated_at: string;
 }
 
+/** `credentials` — columns mirror the LIVE schema. `items_completed` is an INTEGER
+ * (computed default), NOT an array; there is NO `items_total` column. The `sos_status`
+ * / `cslb_active` / `legal_name_verified` columns are added by the F-078 migration
+ * (per-client home of the inherited legal signal, R-16). No `tenant_id` column. */
 export interface Credential {
   id: string;
   client_id: string;
-  tenant_id: string;
+  entity_type: string | null;
+  legal_name: string | null;
+  dba_number: string | null;
+  cslb_number: string | null;
+  city_license: string | null;
+  gbp_access: boolean | null;
+  google_ads_access: boolean | null;
+  meta_suite_access: boolean | null;
+  instagram_access: boolean | null;
+  facebook_page_access: boolean | null;
+  business_email_access: boolean | null;
+  website_access: boolean | null;
+  analytics_access: boolean | null;
+  items_completed: number | null;
+  notes: string | null;
+  // F-078 additive legal signal columns (applied by gated migration):
+  sos_status: SosStatus | null;
+  cslb_active: boolean | null;
+  legal_name_verified: boolean | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// F-078 — Readiness core (veredicto de elegibilidad GBP)
+// Hand-authored to MATCH the proposed migration
+// (supabase/migrations/20260717_f078_readiness_core.sql). Once the gated DDL is
+// applied, `generate_typescript_types` will confirm these (LIVE, Leader/operador).
+// ---------------------------------------------------------------------------
+
+/** Legal entity status with the CA Secretary of State (`sos_status` enum). */
+export type SosStatus = 'active' | 'suspended' | 'dissolved' | 'unknown';
+
+/** Unified eligibility verdict produced by the readiness engine (`eligibility_verdict`). */
+export type EligibilityVerdict =
+  | 'elegible'
+  | 'bloqueado'
+  | 'necesita_fix'
+  | 'datos_insuficientes';
+
+/** Closed taxonomy of concrete blockers (`readiness_blocker`). */
+export type ReadinessBlocker =
+  | 'sos_inactive'
+  | 'cslb_inactive'
+  | 'nap_inconsistent'
+  | 'gbp_duplicate'
+  | 'gbp_missing'
+  | 'legal_name_mismatch';
+
+/** `readiness_assessments` row (historizable, append-only). Mirrors design §2.2. */
+export interface ReadinessAssessment {
+  id: string;
+  client_id: string;
+  location_label: string | null;
+  gbp_profile_id: string | null;
+  nap_check_id: string | null;
+  credential_id: string | null;
+  verdict: EligibilityVerdict;
+  blockers: ReadinessBlocker[];
+  snap_sos_status: SosStatus | null;
+  snap_cslb_active: boolean | null;
+  snap_cslb_name_match: boolean | null;
+  snap_nap_risk: NapRisk | null;
+  snap_nap_consistent: boolean | null;
+  snap_gbp_exists: boolean | null;
+  snap_gbp_duplicate: boolean | null;
+  rationale: string | null;
+  assessed_by: string | null;
+  assessed_at: string;
   created_at: string;
 }
 
