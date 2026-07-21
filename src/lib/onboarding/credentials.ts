@@ -83,8 +83,11 @@ export const SOS_STATUS_OPTIONS: ReadonlyArray<{
 ];
 
 /** Writable, real columns of `credentials` accepted by the reconciled write. NOTE:
- * `items_total` is intentionally absent (does not exist); `items_completed` is an
- * INTEGER. `sos_status`/`cslb_active`/`legal_name_verified` are the F-078 additions. */
+ * `items_total` is intentionally absent (does not exist). `items_completed` is a
+ * GENERATED ALWAYS column (F-080 R-02/R-03): the DB computes it from the 8 `*_access`
+ * booleans, so writing a value triggers Postgres 400 → 0 rows. It is intentionally
+ * absent from this list and from the write payload; it is still returned on GET.
+ * `sos_status`/`cslb_active`/`legal_name_verified` are the F-078 additions. */
 export const CREDENTIALS_WRITABLE_COLUMNS: readonly string[] = [
   'client_id',
   'entity_type',
@@ -92,7 +95,6 @@ export const CREDENTIALS_WRITABLE_COLUMNS: readonly string[] = [
   'dba_number',
   'cslb_number',
   'city_license',
-  'items_completed',
   'sos_status',
   'cslb_active',
   'legal_name_verified',
@@ -106,7 +108,7 @@ export interface CredentialsPayload {
   dba_number: string;
   cslb_number: string;
   city_license: string;
-  items_completed: number;
+  // NO `items_completed`: GENERATED ALWAYS column, computed by the DB (F-080 R-02).
   sos_status: SosStatus;
   cslb_active: boolean;
   legal_name_verified: boolean;
@@ -128,7 +130,9 @@ export function buildCredentialsPayload(args: {
   cslbActive: boolean;
   legalNameVerified: boolean;
 }): CredentialsPayload {
-  const completedCount = Object.values(args.checklist).filter(Boolean).length;
+  // NOTE (F-080): the completed count is NOT written back — `items_completed` is a
+  // generated column. Callers that need the count (e.g. activity metadata) derive it
+  // locally from the checklist (see `credentials/[clientId]/page.tsx`, R-09).
   return {
     client_id: args.clientId,
     entity_type: args.entityType,
@@ -136,7 +140,6 @@ export function buildCredentialsPayload(args: {
     dba_number: args.dbaNumber,
     cslb_number: args.cslbNumber,
     city_license: args.cityLicense,
-    items_completed: completedCount,
     sos_status: args.sosStatus,
     cslb_active: args.cslbActive,
     legal_name_verified: args.legalNameVerified
@@ -189,4 +192,123 @@ export function parseCredentialsRow(
   }
 
   return { checklist, sosStatus, cslbActive, legalNameVerified };
+}
+
+/* ------------------------------------------------------------------------- *
+ * F-080 — testable persist/load seam (framework-free, no DOM).
+ * Extracted so the page's autoSave and the unit tests exercise the SAME code path
+ * (verification lesson §6.1: test the real path, not a re-implementation).
+ * ------------------------------------------------------------------------- */
+
+/** Minimal structural view of the Supabase client the write path needs. */
+export interface CredentialsWriteClient {
+  from(table: string): {
+    update(values: Record<string, unknown>): {
+      eq(column: string, value: string): PromiseLike<{ error: unknown | null }>;
+    };
+    insert(values: Record<string, unknown>): {
+      select(): {
+        single(): PromiseLike<{
+          data: { id?: string } | null;
+          error: unknown | null;
+        }>;
+      };
+    };
+  };
+}
+
+export interface CredentialsReadClient {
+  from(table: string): {
+    select(columns: string): {
+      eq(
+        column: string,
+        value: string
+      ): {
+        maybeSingle(): PromiseLike<{
+          data: Record<string, unknown> | null;
+          error: unknown | null;
+        }>;
+      };
+    };
+  };
+}
+
+/**
+ * Persists a `credentials` row (insert or update) reading `error` on BOTH branches and
+ * throwing on failure (F-080 R-04). Returns the row id on success.
+ */
+export async function persistCredentials(deps: {
+  supabase: CredentialsWriteClient;
+  payload: CredentialsPayload;
+  credentialId: string | null;
+  now?: () => string;
+}): Promise<string | null> {
+  const { supabase, payload, credentialId } = deps;
+  if (credentialId) {
+    const { error } = await supabase
+      .from('credentials')
+      .update({
+        ...payload,
+        updated_at: deps.now?.() ?? new Date().toISOString()
+      })
+      .eq('id', credentialId);
+    if (error) throw error;
+    return credentialId;
+  }
+  const { data, error } = await supabase
+    .from('credentials')
+    .insert(payload as unknown as Record<string, unknown>)
+    .select()
+    .single();
+  if (error) throw error;
+  return data?.id ?? null;
+}
+
+/**
+ * Orchestrates the credentials save: persist → log activity → report success/error via
+ * injected callbacks. On any error the write is surfaced through `onError` and `ok` is
+ * false, so the caller never shows a false success toast (F-080 R-04/R-05).
+ */
+export async function handleCredentialsSave(
+  deps: {
+    supabase: CredentialsWriteClient;
+    payload: CredentialsPayload;
+    credentialId: string | null;
+    now?: () => string;
+  },
+  handlers: {
+    logActivity: () => Promise<void> | void;
+    onError: (error: unknown) => void;
+  }
+): Promise<{ ok: boolean; credentialId: string | null }> {
+  try {
+    const id = await persistCredentials(deps);
+    await handlers.logActivity();
+    return { ok: true, credentialId: id };
+  } catch (error) {
+    handlers.onError(error);
+    return { ok: false, credentialId: deps.credentialId };
+  }
+}
+
+/**
+ * Loads the `credentials` row for a client using `.maybeSingle()` so 0 rows resolve to a
+ * null row (no 406) and the page loads with safe defaults (F-080 R-06).
+ */
+export async function loadCredentials(
+  supabase: CredentialsReadClient,
+  clientId: string
+): Promise<{
+  credentialId: string | null;
+  row: Record<string, unknown> | null;
+}> {
+  const { data } = await supabase
+    .from('credentials')
+    .select('*')
+    .eq('client_id', clientId)
+    .maybeSingle();
+  const row = (data ?? null) as Record<string, unknown> | null;
+  const credentialId =
+    row && typeof row.id === 'string' ? (row.id as string) : null;
+  return { credentialId, row };
 }

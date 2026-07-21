@@ -22,14 +22,7 @@ const baseArgs = {
   legalNameVerified: true
 };
 
-// --- T-22: items_completed integer, no items_total, sos_status persisted ---
-test('T-22 items_completed is an integer count (not an array)', () => {
-  const p = buildCredentialsPayload(baseArgs);
-  assert.equal(typeof p.items_completed, 'number');
-  assert.equal(p.items_completed, 2); // two true items
-  assert.ok(!Array.isArray(p.items_completed));
-});
-
+// --- T-22 / F-080 R-02: items_completed is a generated column → never written ---
 test('T-22 payload has NO items_total column', () => {
   const p = buildCredentialsPayload(baseArgs);
   assert.ok(!('items_total' in p));
