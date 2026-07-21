@@ -56,3 +56,41 @@ test('R-05/R-06/R-07 degradation notes surfaced in the message', () => {
   assert.match(msg, /sin fotos aprobadas/);
   assert.match(msg, /Estado operativo GBP: pendiente/);
 });
+
+// --- F-081 T-07 (R-05/R-06): directiva de idioma driven por content_language ---
+test("F-081 T-07 buildGbpUserMessage con content_language='en' cierra con directiva inglés", () => {
+  const enCtx = readGbpContext({
+    client: { ...CLIENT, content_language: 'en' },
+    offer: REAL_OFFER,
+    brandboard: APPROVED_BRANDBOARD
+  });
+  const msg = buildGbpUserMessage(enCtx);
+  assert.match(msg, /IDIOMA DE SALIDA \(OBLIGATORIO\)/);
+  assert.match(msg, /English/);
+  assert.doesNotMatch(msg, /EXCLUSIVAMENTE en español/);
+  // recency: la directiva es lo último del mensaje.
+  assert.ok(msg.trimEnd().endsWith('.'), 'la directiva debe cerrar el mensaje');
+  assert.ok(
+    msg.indexOf('IDIOMA DE SALIDA') > msg.indexOf('Responde SOLO con JSON'),
+    'la directiva va al CIERRE, tras la instrucción JSON'
+  );
+});
+
+test("F-081 T-07 buildGbpUserMessage con content_language='es' cierra con directiva español", () => {
+  const esCtx = readGbpContext({
+    client: { ...CLIENT, content_language: 'es' },
+    offer: REAL_OFFER,
+    brandboard: APPROVED_BRANDBOARD
+  });
+  const msg = buildGbpUserMessage(esCtx);
+  assert.match(msg, /EXCLUSIVAMENTE en español/);
+  assert.doesNotMatch(msg, /English/);
+});
+
+test('F-081 T-07 sin content_language (default) → directiva español (R-03)', () => {
+  // CLIENT no define content_language → default 'es'.
+  const msg = buildGbpUserMessage(ctx);
+  assert.match(msg, /IDIOMA DE SALIDA \(OBLIGATORIO\)/);
+  assert.match(msg, /EXCLUSIVAMENTE en español/);
+  assert.doesNotMatch(msg, /English/);
+});

@@ -21,6 +21,10 @@ import {
   type MethodGrounding,
   type Step
 } from '@/lib/method-grounding';
+import {
+  buildLanguageDirective,
+  normalizeContentLanguage
+} from '@/lib/content-language';
 const AI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o';
 export async function POST(request: NextRequest) {
   try {
@@ -294,7 +298,11 @@ export async function POST(request: NextRequest) {
       (input_data
         ? JSON.stringify(input_data, null, 2)
         : 'Sin datos adicionales.') +
-      '\n\nGenera el output en formato JSON + raw_text (markdown). Responde SOLO con JSON valido, sin backticks ni texto adicional.';
+      '\n\nGenera el output en formato JSON + raw_text (markdown). Responde SOLO con JSON valido, sin backticks ni texto adicional.' +
+      // F-081 (R-04/R-06): directiva imperativa de idioma al CIERRE del user message
+      // (recency para gpt-4o) driven por client.content_language. Sobrescribe el idioma
+      // redaccional de los prompt_versions sin reescribirlos (precedente alt-text:101).
+      buildLanguageDirective(client.content_language as string | null);
     // F-065: augment the static system_prompt with the method block (R-04/R-14).
     // Empty block -> systemContent === prompt.system_prompt (static intact).
     const systemContent = composeSystemContent(
@@ -468,7 +476,11 @@ export async function POST(request: NextRequest) {
             prompt_version_id: prompt.id,
             output_type: step,
             content: groundedContent,
-            language: (parsedContent?.language as string) || 'es',
+            // F-081 (R-07): el tag refleja el idioma del CLIENTE (fuente de verdad),
+            // no el parsedContent.language cosmético que emite el modelo. Fallback 'es'.
+            language: normalizeContentLanguage(
+              client.content_language as string | null
+            ),
             status: 'draft',
             version: 1
           })
