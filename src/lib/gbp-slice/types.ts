@@ -73,6 +73,7 @@ export interface RawClient {
   zip_code?: string | null;
   service_area_cities?: unknown; // jsonb
   tier?: string | null;
+  content_language?: string | null; // F-081: idioma de salida por-cliente ('es'/'en', default 'es')
 }
 
 /** Raw `client_photos` row (L3). `is_logo`/`gbp_category` are media metadata,

@@ -7,6 +7,7 @@
  * instructs the model to honor the approved OFV, not invent a new value proposition.
  */
 import type { GbpContext } from './context.ts';
+import { buildLanguageDirective } from '../content-language.ts';
 
 /** Final required GBP fields validated before write (R-10/R-11). `business_name` is
  * NOT here: it is client-sourced (R-03), not decided by the model output. */
@@ -131,6 +132,11 @@ export function buildGbpUserMessage(ctx: GbpContext): string {
   lines.push(
     'Genera el contenido del perfil GBP en JSON válido, respetando el tono de marca. Responde SOLO con JSON.'
   );
+
+  // F-081 (R-05/R-06): directiva imperativa de idioma al CIERRE del user message
+  // (recency) driven por client.content_language. Mantiene el ensamblado del mensaje
+  // en un solo lugar (testeable). NULL/ausente → español (default, R-03).
+  lines.push(buildLanguageDirective(client.content_language));
 
   return lines.join('\n');
 }
