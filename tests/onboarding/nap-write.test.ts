@@ -62,7 +62,6 @@ test('T-21 risk_level is always a valid nap_risk enum value', () => {
   });
   assert.ok(VALID_NAP_RISK.has(all.risk_level));
   assert.equal(all.risk_level, 'consistent');
-  assert.equal(all.items_passed, 6);
 
   const none = buildNapCheckPayload({
     clientId: 'c1',
@@ -71,7 +70,6 @@ test('T-21 risk_level is always a valid nap_risk enum value', () => {
     checkedBy: null
   });
   assert.equal(none.risk_level, 'inconsistent');
-  assert.equal(none.items_passed, 0);
 
   const some = buildNapCheckPayload({
     clientId: 'c1',

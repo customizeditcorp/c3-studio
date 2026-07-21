@@ -53,7 +53,11 @@ export const NAP_CHECKLIST: ReadonlyArray<{
   }
 ];
 
-/** Writable, real columns of `nap_checks` accepted by the reconciled insert/update. */
+/** Writable, real columns of `nap_checks` accepted by the reconciled insert/update.
+ * NOTE (F-080 R-01/R-03): `items_passed` is a GENERATED ALWAYS column — the DB computes
+ * it from the 6 booleans. Writing a value to it triggers Postgres 400
+ * (`cannot insert a non-DEFAULT value into a generated column`) → 0 rows. It is
+ * intentionally absent here and from the write payload; it is still returned on GET. */
 export const NAP_WRITABLE_COLUMNS: readonly string[] = [
   'client_id',
   'google_name_match',
@@ -62,7 +66,6 @@ export const NAP_WRITABLE_COLUMNS: readonly string[] = [
   'phone_consistent',
   'cslb_active',
   'entity_verified',
-  'items_passed',
   'risk_level',
   'notes',
   'checked_by'
@@ -98,7 +101,7 @@ export interface NapCheckPayload {
   phone_consistent: boolean;
   cslb_active: boolean;
   entity_verified: boolean;
-  items_passed: number;
+  // NO `items_passed`: GENERATED ALWAYS column, computed by the DB (F-080 R-01).
   risk_level: NapRisk;
   notes: string;
   checked_by: string | null;
@@ -116,6 +119,8 @@ export function buildNapCheckPayload(args: {
 }): NapCheckPayload {
   const { clientId, checklist, notes, checkedBy } = args;
   const flags = NAP_CHECKLIST.map((item) => Boolean(checklist[item.id]));
+  // `passed` stays local: it feeds `napRiskFor` → `risk_level` (a real, non-generated
+  // column). It is NOT written back as `items_passed` (generated column; F-080 R-01).
   const passed = flags.filter(Boolean).length;
   const risk = napRiskFor(passed, NAP_CHECKLIST.length);
   return {
@@ -126,7 +131,6 @@ export function buildNapCheckPayload(args: {
     phone_consistent: Boolean(checklist['phone_consistent']),
     cslb_active: Boolean(checklist['cslb_active']),
     entity_verified: Boolean(checklist['entity_verified']),
-    items_passed: passed,
     risk_level: risk.level,
     notes,
     checked_by: checkedBy
@@ -157,4 +161,135 @@ export function parseNapCheckRow(
   }
   const notes = typeof row.notes === 'string' ? row.notes : '';
   return { checklist, notes };
+}
+
+/* ------------------------------------------------------------------------- *
+ * F-080 — testable persist/load seam (framework-free, no DOM).
+ * Extracted so the page handler and the unit tests exercise the SAME code path
+ * (verification lesson §6.1: test the real path, not a re-implementation).
+ * ------------------------------------------------------------------------- */
+
+/** Minimal structural view of the Supabase client the write path needs. The real
+ * `@supabase/supabase-js` client satisfies this (call sites cast). */
+export interface NapWriteClient {
+  from(table: string): {
+    update(values: Record<string, unknown>): {
+      eq(column: string, value: string): PromiseLike<{ error: unknown | null }>;
+    };
+    insert(values: Record<string, unknown>): {
+      select(): {
+        single(): PromiseLike<{
+          data: { id?: string } | null;
+          error: unknown | null;
+        }>;
+      };
+    };
+  };
+}
+
+export interface NapReadClient {
+  from(table: string): {
+    select(columns: string): {
+      eq(
+        column: string,
+        value: string
+      ): {
+        order(
+          column: string,
+          opts: { ascending: boolean }
+        ): {
+          limit(n: number): {
+            maybeSingle(): PromiseLike<{
+              data: Record<string, unknown> | null;
+              error: unknown | null;
+            }>;
+          };
+        };
+      };
+    };
+  };
+}
+
+/**
+ * Persists a `nap_checks` row (insert or update) reading `error` on BOTH branches and
+ * throwing on failure (F-080 R-04). Returns the row id on success.
+ */
+export async function persistNapCheck(deps: {
+  supabase: NapWriteClient;
+  payload: NapCheckPayload;
+  napCheckId: string | null;
+  now?: () => string;
+}): Promise<string | null> {
+  const { supabase, payload, napCheckId } = deps;
+  if (napCheckId) {
+    const { error } = await supabase
+      .from('nap_checks')
+      .update({
+        ...payload,
+        updated_at: deps.now?.() ?? new Date().toISOString()
+      })
+      .eq('id', napCheckId);
+    if (error) throw error;
+    return napCheckId;
+  }
+  const { data, error } = await supabase
+    .from('nap_checks')
+    .insert(payload as unknown as Record<string, unknown>)
+    .select()
+    .single();
+  if (error) throw error;
+  return data?.id ?? null;
+}
+
+/**
+ * Orchestrates the NAP save: persist → log activity → report success/error via injected
+ * callbacks. On any error the write is surfaced through `onError` and `ok` is false, so
+ * the caller never shows a false success toast (F-080 R-04/R-05).
+ */
+export async function handleNapSave(
+  deps: {
+    supabase: NapWriteClient;
+    payload: NapCheckPayload;
+    napCheckId: string | null;
+    now?: () => string;
+  },
+  handlers: {
+    logActivity: () => Promise<void> | void;
+    onError: (error: unknown) => void;
+  }
+): Promise<{ ok: boolean; napCheckId: string | null }> {
+  try {
+    const id = await persistNapCheck(deps);
+    await handlers.logActivity();
+    return { ok: true, napCheckId: id };
+  } catch (error) {
+    handlers.onError(error);
+    return { ok: false, napCheckId: deps.napCheckId };
+  }
+}
+
+/**
+ * Loads the latest `nap_checks` row for a client using `.maybeSingle()` so 0 rows
+ * resolve to a null row (no 406) and the page loads with an empty checklist (F-080 R-06).
+ */
+export async function loadLatestNapCheck(
+  supabase: NapReadClient,
+  clientId: string
+): Promise<{
+  napCheckId: string | null;
+  checklist: Record<string, boolean>;
+  notes: string;
+}> {
+  const { data } = await supabase
+    .from('nap_checks')
+    .select('*')
+    .eq('client_id', clientId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const row = (data ?? null) as Record<string, unknown> | null;
+  const parsed = parseNapCheckRow(row);
+  const napCheckId =
+    row && typeof row.id === 'string' ? (row.id as string) : null;
+  return { napCheckId, ...parsed };
 }

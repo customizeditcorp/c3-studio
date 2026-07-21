@@ -27,7 +27,11 @@ import {
   CREDENTIALS_CHECKLIST as CHECKLIST_ITEMS,
   SOS_STATUS_OPTIONS,
   buildCredentialsPayload,
-  parseCredentialsRow
+  parseCredentialsRow,
+  handleCredentialsSave,
+  loadCredentials,
+  type CredentialsReadClient,
+  type CredentialsWriteClient
 } from '@/lib/onboarding/credentials';
 
 export default function CredentialsPage() {
@@ -68,23 +72,23 @@ export default function CredentialsPage() {
       .single();
     if (clientData) setClient(clientData);
 
-    // Load existing credentials
-    const { data: credData } = await supabase
-      .from('credentials')
-      .select('*')
-      .eq('client_id', clientId)
-      .single();
+    // Load existing credentials. F-080 (R-06): `.maybeSingle()` inside `loadCredentials`
+    // so 0 rows resolve to a null row (no 406) and the page loads with safe defaults.
+    const { credentialId: existingId, row: credData } = await loadCredentials(
+      supabase as unknown as CredentialsReadClient,
+      clientId
+    );
 
     if (credData) {
-      setCredentialId(credData.id);
-      setEntityType(credData.entity_type || 'self_employment');
-      setLegalName(credData.legal_name || '');
-      setDbaNumber(credData.dba_number || '');
-      setCslbNumber(credData.cslb_number || '');
-      setCityLicense(credData.city_license || '');
-      // Reconciled to the real schema (R-18/R-19): `items_completed` is an INTEGER
-      // now; parse defensively (handles a legacy array) and load the legal signals.
-      const parsed = parseCredentialsRow(credData as Record<string, unknown>);
+      setCredentialId(existingId);
+      setEntityType((credData.entity_type as string) || 'self_employment');
+      setLegalName((credData.legal_name as string) || '');
+      setDbaNumber((credData.dba_number as string) || '');
+      setCslbNumber((credData.cslb_number as string) || '');
+      setCityLicense((credData.city_license as string) || '');
+      // Reconciled to the real schema (R-18/R-19): `items_completed` is a generated
+      // INTEGER; parse defensively (handles a legacy array) and load the legal signals.
+      const parsed = parseCredentialsRow(credData);
       setChecklist(parsed.checklist);
       setSosStatus(parsed.sosStatus);
       setCslbActive(parsed.cslbActive);
@@ -106,11 +110,16 @@ export default function CredentialsPage() {
     await autoSave(newChecklist);
   };
 
-  const autoSave = async (newChecklist: Record<string, boolean>) => {
-    if (!tenantId || !user) return;
+  const autoSave = async (
+    newChecklist: Record<string, boolean>
+  ): Promise<boolean> => {
+    if (!tenantId || !user) return false;
 
-    // Reconciled to the REAL `credentials` schema (R-18/R-16): `items_completed` is
-    // written as the INTEGER count; no `items_total` column; legal signals captured.
+    // Reconciled to the REAL `credentials` schema: NO `items_completed` in the payload
+    // (it is a generated column; F-080 R-02). The completed count for the activity
+    // metadata is derived LOCALLY from the checklist, independent of the persisted
+    // payload (R-09).
+    const completedCount = Object.values(newChecklist).filter(Boolean).length;
     const data = buildCredentialsPayload({
       clientId,
       entityType,
@@ -124,39 +133,42 @@ export default function CredentialsPage() {
       legalNameVerified
     });
 
-    try {
-      if (credentialId) {
-        await supabase
-          .from('credentials')
-          .update({ ...data, updated_at: new Date().toISOString() })
-          .eq('id', credentialId);
-      } else {
-        const { data: newCred } = await supabase
-          .from('credentials')
-          .insert(data)
-          .select()
-          .single();
-        if (newCred) setCredentialId(newCred.id);
+    // F-080 (R-04/R-05): the write reads `error` on both branches and throws on
+    // failure; `handleCredentialsSave` routes it to `onError` (visible toast — the
+    // autoSave `catch` used to be silent) and reports `ok=false`, so the caller does
+    // not show a false success toast.
+    const { ok, credentialId: newId } = await handleCredentialsSave(
+      {
+        supabase: supabase as unknown as CredentialsWriteClient,
+        payload: data,
+        credentialId
+      },
+      {
+        logActivity: () =>
+          logActivity({
+            tenantId,
+            userId: user.id,
+            action: 'credentials_updated',
+            entityType: 'credential',
+            entityId: credentialId || clientId,
+            clientId,
+            metadata: { items_completed: completedCount }
+          }),
+        onError: (error) => {
+          console.error('Error auto-saving credentials:', error);
+          toast.error('Error al guardar credenciales');
+        }
       }
+    );
 
-      await logActivity({
-        tenantId,
-        userId: user.id,
-        action: 'credentials_updated',
-        entityType: 'credential',
-        entityId: credentialId || clientId,
-        clientId,
-        metadata: { items_completed: data.items_completed }
-      });
-    } catch (error) {
-      console.error('Error auto-saving credentials:', error);
-    }
+    if (ok && newId) setCredentialId(newId);
+    return ok;
   };
 
   const handleSave = async () => {
     if (!tenantId || !user) return;
-    await autoSave(checklist);
-    toast.success('Credenciales guardadas');
+    const ok = await autoSave(checklist);
+    if (ok) toast.success('Credenciales guardadas');
   };
 
   if (loading) {

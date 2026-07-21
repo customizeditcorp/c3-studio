@@ -18,7 +18,10 @@ import {
   NAP_CHECKLIST,
   napRiskFor,
   buildNapCheckPayload,
-  parseNapCheckRow
+  handleNapSave,
+  loadLatestNapCheck,
+  type NapReadClient,
+  type NapWriteClient
 } from '@/lib/onboarding/nap-check';
 
 export default function NAPPage() {
@@ -58,22 +61,15 @@ export default function NAPPage() {
       setBusinessName(clientData.business_name);
     }
 
-    const { data: napData } = await supabase
-      .from('nap_checks')
-      .select('*')
-      .eq('client_id', clientId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    if (napData) {
-      setNapCheckId(napData.id);
-      // Reconciled to the real schema: rebuild checklist + notes from the row
-      // (backward-compat with any legacy `check_items` array; R-19).
-      const parsed = parseNapCheckRow(napData as Record<string, unknown>);
-      setChecklist(parsed.checklist);
-      setNotes(parsed.notes);
-    }
+    // F-080 (R-06): `.maybeSingle()` inside `loadLatestNapCheck` so 0 rows resolve to a
+    // null row (no 406) and the page loads with an empty checklist.
+    const nap = await loadLatestNapCheck(
+      supabase as unknown as NapReadClient,
+      clientId
+    );
+    if (nap.napCheckId) setNapCheckId(nap.napCheckId);
+    setChecklist(nap.checklist);
+    setNotes(nap.notes);
     setLoading(false);
   };
 
@@ -94,38 +90,40 @@ export default function NAPPage() {
       checkedBy: user.id
     });
 
-    try {
-      if (napCheckId) {
-        await supabase
-          .from('nap_checks')
-          .update({ ...data, updated_at: new Date().toISOString() })
-          .eq('id', napCheckId);
-      } else {
-        const { data: newCheck } = await supabase
-          .from('nap_checks')
-          .insert(data)
-          .select()
-          .single();
-        if (newCheck) setNapCheckId(newCheck.id);
+    // F-080 (R-04/R-05): the write reads `error` on both branches and throws on
+    // failure; `handleNapSave` routes it to `onError` (visible toast) and reports
+    // `ok=false`, so a false success toast can no longer fire off the 201 from
+    // `activity_log`. `items_passed` in the metadata is derived locally (`passedCount`),
+    // not from the persisted payload (the generated column is no longer written).
+    const { ok, napCheckId: newId } = await handleNapSave(
+      {
+        supabase: supabase as unknown as NapWriteClient,
+        payload: data,
+        napCheckId
+      },
+      {
+        logActivity: () =>
+          logActivity({
+            tenantId,
+            userId: user.id,
+            action: 'nap_check_completed',
+            entityType: 'nap_check',
+            entityId: napCheckId || clientId,
+            clientId,
+            metadata: { risk_level: risk.level, items_passed: passedCount }
+          }),
+        onError: (error) => {
+          console.error('Error saving NAP check:', error);
+          toast.error('Error al guardar');
+        }
       }
+    );
 
-      await logActivity({
-        tenantId,
-        userId: user.id,
-        action: 'nap_check_completed',
-        entityType: 'nap_check',
-        entityId: napCheckId || clientId,
-        clientId,
-        metadata: { risk_level: risk.level, items_passed: passedCount }
-      });
-
+    if (ok) {
+      if (newId) setNapCheckId(newId);
       toast.success('Verificación NAP guardada');
-    } catch (error) {
-      console.error('Error saving NAP check:', error);
-      toast.error('Error al guardar');
-    } finally {
-      setSaving(false);
     }
+    setSaving(false);
   };
 
   if (loading) {
