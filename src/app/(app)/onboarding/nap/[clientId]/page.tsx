@@ -14,55 +14,12 @@ import { logActivity } from '@/lib/activity';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
-
-const NAP_CHECKLIST = [
-  {
-    id: 'name_consistent',
-    label: 'Nombre del negocio consistente en todos los sitios',
-    description: 'El nombre aparece igual en Google, Yelp, Facebook, etc.'
-  },
-  {
-    id: 'address_consistent',
-    label: 'Dirección consistente',
-    description: 'Misma dirección formateada en todos los directorios'
-  },
-  {
-    id: 'phone_consistent',
-    label: 'Teléfono consistente',
-    description: 'Mismo número de teléfono en todos los sitios'
-  },
-  {
-    id: 'cslb_matches',
-    label: 'Nombre en CSLB coincide con GBP',
-    description: 'El nombre registrado en CSLB es el mismo del GBP'
-  },
-  {
-    id: 'sos_matches',
-    label: 'Nombre en CA SOS coincide con GBP',
-    description: 'El nombre registrado en SOS coincide'
-  },
-  {
-    id: 'no_duplicates',
-    label: 'Sin perfiles duplicados',
-    description: 'No hay duplicados en Google Business Profile'
-  }
-];
-
-function getRiskLevel(passed: number, total: number) {
-  if (passed === total)
-    return { level: 'low', label: 'Bajo Riesgo', color: 'default' as const };
-  if (passed === 0)
-    return {
-      level: 'high',
-      label: 'Alto Riesgo',
-      color: 'destructive' as const
-    };
-  return {
-    level: 'medium',
-    label: 'Riesgo Medio',
-    color: 'secondary' as const
-  };
-}
+import {
+  NAP_CHECKLIST,
+  napRiskFor,
+  buildNapCheckPayload,
+  parseNapCheckRow
+} from '@/lib/onboarding/nap-check';
 
 export default function NAPPage() {
   const { clientId } = useParams<{ clientId: string }>();
@@ -111,43 +68,31 @@ export default function NAPPage() {
 
     if (napData) {
       setNapCheckId(napData.id);
-      setCity(napData.city || '');
-      setNotes(napData.notes || '');
-      if (napData.check_items) {
-        const items: Record<string, boolean> = {};
-        (napData.check_items as string[]).forEach((item: string) => {
-          items[item] = true;
-        });
-        setChecklist(items);
-      }
+      // Reconciled to the real schema: rebuild checklist + notes from the row
+      // (backward-compat with any legacy `check_items` array; R-19).
+      const parsed = parseNapCheckRow(napData as Record<string, unknown>);
+      setChecklist(parsed.checklist);
+      setNotes(parsed.notes);
     }
     setLoading(false);
   };
 
-  const passedCount = NAP_CHECKLIST.filter(
-    (item) => checklist[item.id]
-  ).length;
-  const risk = getRiskLevel(passedCount, NAP_CHECKLIST.length);
+  const passedCount = NAP_CHECKLIST.filter((item) => checklist[item.id]).length;
+  const risk = napRiskFor(passedCount, NAP_CHECKLIST.length);
 
   const handleSave = async () => {
     if (!tenantId || !user) return;
     setSaving(true);
 
-    const passedItems = Object.entries(checklist)
-      .filter(([, v]) => v)
-      .map(([k]) => k);
-
-    const data = {
-      client_id: clientId,
-      business_name: businessName,
-      city,
-      check_items: passedItems,
-      items_passed: passedCount,
-      items_total: NAP_CHECKLIST.length,
-      risk_level: risk.level,
+    // Reconciled to the REAL `nap_checks` schema (R-17): only real columns +
+    // `risk_level` in the `nap_risk` enum. No `business_name`/`city`/`check_items`/
+    // `items_total`/`completed_by` (those columns do not exist → 0-rows drift).
+    const data = buildNapCheckPayload({
+      clientId,
+      checklist,
       notes,
-      completed_by: user.id
-    };
+      checkedBy: user.id
+    });
 
     try {
       if (napCheckId) {
@@ -203,13 +148,13 @@ export default function NAPPage() {
       pageTitle={`NAP — ${client?.business_name || clientId}`}
       pageDescription='Verificación de consistencia de Name, Address & Phone'
     >
-      <div className='flex flex-1 flex-col gap-4 p-4 md:px-6 max-w-3xl'>
+      <div className='flex max-w-3xl flex-1 flex-col gap-4 p-4 md:px-6'>
         {/* Risk Badge */}
         <div className='flex items-center gap-3'>
-          <Badge variant={risk.color} className='text-sm px-3 py-1'>
+          <Badge variant={risk.color} className='px-3 py-1 text-sm'>
             {risk.label}
           </Badge>
-          <span className='text-sm text-muted-foreground'>
+          <span className='text-muted-foreground text-sm'>
             {passedCount} / {NAP_CHECKLIST.length} ítems verificados
           </span>
         </div>
@@ -242,7 +187,9 @@ export default function NAPPage() {
         {/* External Search Buttons */}
         <Card>
           <CardHeader>
-            <CardTitle className='text-base'>Verificar en fuentes externas</CardTitle>
+            <CardTitle className='text-base'>
+              Verificar en fuentes externas
+            </CardTitle>
           </CardHeader>
           <CardContent className='flex flex-wrap gap-2'>
             <Button
@@ -272,7 +219,9 @@ export default function NAPPage() {
         {/* Checklist */}
         <Card>
           <CardHeader>
-            <CardTitle className='text-base'>Checklist de verificación NAP</CardTitle>
+            <CardTitle className='text-base'>
+              Checklist de verificación NAP
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className='space-y-3'>
@@ -299,7 +248,7 @@ export default function NAPPage() {
                     >
                       {item.label}
                     </Label>
-                    <p className='text-xs text-muted-foreground mt-0.5'>
+                    <p className='text-muted-foreground mt-0.5 text-xs'>
                       {item.description}
                     </p>
                   </div>
