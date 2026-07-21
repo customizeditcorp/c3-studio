@@ -19,7 +19,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { useUser } from '@/contexts/UserContext';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { logActivity } from '@/lib/activity';
-import { textFromGenerateContentResult } from '@/lib/generate-content-text';
+import {
+  textFromGenerateContentResult,
+  gbpDescriptionFromResult
+} from '@/lib/generate-content-text';
 import {
   generateContent,
   generateGbp,
@@ -336,7 +339,7 @@ export default function GBPPage() {
         clientId
       });
 
-      const generatedText = textFromGenerateContentResult(result);
+      const generatedText = gbpDescriptionFromResult(result);
       if (generatedText) {
         setDescription(generatedText.slice(0, 750));
         toast.success('Descripción generada. Edítala si lo deseas y guarda.');

@@ -78,7 +78,13 @@ export default async function PreviewPage({
       photos={photos || []}
       isExpired={isExpired}
       token={token}
-      generatedDescription={generatedOutputs?.content || null}
+      generatedDescription={(() => {
+        const c = generatedOutputs?.content as
+          | { description?: string; short_description?: string }
+          | null
+          | undefined;
+        return c?.description ?? c?.short_description ?? null;
+      })()}
       latestOffer={latestOffer || null}
     />
   );
