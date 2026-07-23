@@ -47,6 +47,7 @@ export {
 export {
   GbpDomainError,
   parseGbpJson,
+  stripCodeFences,
   toGbpProfileRow,
   buildPreviewSnapshot,
   assetStatusForDecision,
@@ -55,6 +56,18 @@ export {
   SLICE_ASSET_TYPE,
   type GbpProfileInsert
 } from './profile.ts';
+// F-084 — Guards de write-path del draft GBP (sanitizer + zip + clamp).
+export {
+  SHORT_DESCRIPTION_MAX,
+  clampShortDescription,
+  sanitizeGbpDescription,
+  descriptionLooksLikeBlob,
+  guardGbpDescription,
+  isValidUsZip,
+  validateAddressZip,
+  type DescriptionGuardResult,
+  type AddressZipValidation
+} from './profile-edit.ts';
 // F-078 — Readiness core (veredicto de elegibilidad GBP).
 export {
   computeReadiness,

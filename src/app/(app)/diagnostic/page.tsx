@@ -39,8 +39,8 @@ function needsPresenciaDigital(
 const PRESENCIA_DIGITAL = {
   tier: 'presencia_digital',
   price: 3300,
-  priceInstallment: 1100,     // 3 x $1,100
-  priceDiscount: 2970,         // $3,300 - 10%
+  priceInstallment: 1100, // 3 x $1,100
+  priceDiscount: 2970, // $3,300 - 10%
   planName: 'Presencia Digital — 90 días',
   billing: '3 pagos de $1,100 · o pago único $3,135',
   features: [
@@ -105,7 +105,9 @@ function calculateTier(
           'Respuesta a reseñas',
           'Monitoreo de rankings',
           'Reporte mensual de resultados',
-          needsSetup ? 'Setup/corrección de GBP incluido (primer mes)' : 'Optimización continua'
+          needsSetup
+            ? 'Setup/corrección de GBP incluido (primer mes)'
+            : 'Optimización continua'
         ].filter(Boolean),
         scripts: [
           '"Con $399 al mes, tendrás a alguien trabajando tu Google todos los días. ¿Cuánto vale para ti aparecer primero en tu zona?"',
@@ -211,6 +213,10 @@ export default function DiagnosticPage() {
     contact_first_name: '',
     phone: '',
     email: '',
+    // F-084 R-06 — city/state capturados en el alta y persistidos a `clients`
+    // (home canónico, DT-1). Antes: nunca capturados → quedaban NULL.
+    city: '',
+    state: 'CA',
     disc_profile: '',
     notes: ''
   });
@@ -269,7 +275,10 @@ export default function DiagnosticPage() {
 
     try {
       // Get fresh auth user to ensure created_by is correct
-      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+      const {
+        data: { user: authUser },
+        error: authError
+      } = await supabase.auth.getUser();
       if (authError || !authUser) throw new Error('Usuario no autenticado');
 
       let resolvedTenantId = tenantId;
@@ -293,7 +302,9 @@ export default function DiagnosticPage() {
       }
 
       if (!resolvedTenantId) {
-        throw new Error('No hay organización asociada. Completa tu perfil de usuario.');
+        throw new Error(
+          'No hay organización asociada. Completa tu perfil de usuario.'
+        );
       }
 
       let clientId = selectedClientId;
@@ -381,7 +392,10 @@ export default function DiagnosticPage() {
       toast.success('Diagnóstico guardado correctamente');
     } catch (error) {
       console.error('Error saving diagnostic:', error);
-      const msg = error instanceof Error ? error.message : 'Error al guardar el diagnóstico';
+      const msg =
+        error instanceof Error
+          ? error.message
+          : 'Error al guardar el diagnóstico';
       toast.error(msg);
     } finally {
       setSaving(false);
@@ -397,6 +411,8 @@ export default function DiagnosticPage() {
       contact_first_name: '',
       phone: '',
       email: '',
+      city: '',
+      state: 'CA',
       disc_profile: '',
       notes: ''
     });
@@ -417,7 +433,9 @@ export default function DiagnosticPage() {
     if (!savedClientId || !savedDiagnosticId) return;
     setGeneratingPreview(true);
     try {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const {
+        data: { user: authUser }
+      } = await supabase.auth.getUser();
       if (!authUser) throw new Error('No autenticado');
 
       // Generate unique token
@@ -441,16 +459,14 @@ export default function DiagnosticPage() {
         revenue_range: revenueRange
       };
 
-      const { error } = await supabase
-        .from('previews')
-        .insert({
-          client_id: savedClientId,
-          token,
-          preview_type: 'combined',
-          expires_at: expiresAt.toISOString(),
-          metadata: previewMeta,
-          created_by: authUser.id
-        });
+      const { error } = await supabase.from('previews').insert({
+        client_id: savedClientId,
+        token,
+        preview_type: 'combined',
+        expires_at: expiresAt.toISOString(),
+        metadata: previewMeta,
+        created_by: authUser.id
+      });
 
       if (error) throw new Error(error.message);
 
@@ -458,7 +474,9 @@ export default function DiagnosticPage() {
       setPreviewUrl(url);
       toast.success('Preview generado — link listo para compartir');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Error generando preview');
+      toast.error(
+        err instanceof Error ? err.message : 'Error generando preview'
+      );
     } finally {
       setGeneratingPreview(false);
     }
@@ -469,7 +487,8 @@ export default function DiagnosticPage() {
       if (clientMode === 'existing') return !!selectedClientId;
       return !!newClientData.business_name && !!newClientData.industry;
     }
-    if (step === 2) return !!googlePresence && !!licenseStatus && !!digitalHealth;
+    if (step === 2)
+      return !!googlePresence && !!licenseStatus && !!digitalHealth;
     if (step === 3)
       return (
         !!revenueRange && !!teamSize && !!expectation && !!clientManagement
@@ -482,7 +501,7 @@ export default function DiagnosticPage() {
       pageTitle='Diagnóstico'
       pageDescription='Herramienta de diagnóstico para llamadas de ventas'
     >
-      <div className='flex flex-1 flex-col gap-4 p-4 md:px-6 max-w-3xl'>
+      <div className='flex max-w-3xl flex-1 flex-col gap-4 p-4 md:px-6'>
         {/* Progress */}
         <div className='flex items-center gap-2'>
           {[1, 2, 3, 4].map((s) => (
@@ -505,7 +524,7 @@ export default function DiagnosticPage() {
               )}
             </div>
           ))}
-          <span className='ml-2 text-sm text-muted-foreground'>
+          <span className='text-muted-foreground ml-2 text-sm'>
             {step === 1
               ? 'Info del Negocio'
               : step === 2
@@ -639,6 +658,33 @@ export default function DiagnosticPage() {
                       placeholder='carlos@example.com'
                     />
                   </div>
+                  {/* F-084 R-06 — city/state → persisten a clients (home canónico) */}
+                  <div className='space-y-2'>
+                    <Label>Ciudad</Label>
+                    <Input
+                      value={newClientData.city}
+                      onChange={(e) =>
+                        setNewClientData((p) => ({
+                          ...p,
+                          city: e.target.value
+                        }))
+                      }
+                      placeholder='Santa Maria'
+                    />
+                  </div>
+                  <div className='space-y-2'>
+                    <Label>Estado</Label>
+                    <Input
+                      value={newClientData.state}
+                      onChange={(e) =>
+                        setNewClientData((p) => ({
+                          ...p,
+                          state: e.target.value
+                        }))
+                      }
+                      placeholder='CA'
+                    />
+                  </div>
                   <div className='space-y-2'>
                     <Label>Perfil DISC</Label>
                     <Select
@@ -714,7 +760,10 @@ export default function DiagnosticPage() {
                     }
                   ].map((opt) => (
                     <div key={opt.value} className='flex items-center gap-3'>
-                      <RadioGroupItem value={opt.value} id={`gp_${opt.value}`} />
+                      <RadioGroupItem
+                        value={opt.value}
+                        id={`gp_${opt.value}`}
+                      />
                       <Label
                         htmlFor={`gp_${opt.value}`}
                         className='cursor-pointer font-normal'
@@ -822,7 +871,7 @@ export default function DiagnosticPage() {
                 <Label className='text-base font-medium'>
                   ¿Cuánto factura su negocio mensualmente?
                 </Label>
-                <p className='text-xs text-muted-foreground'>
+                <p className='text-muted-foreground text-xs'>
                   (Esto determina el plan recomendado)
                 </p>
                 <RadioGroup
@@ -865,7 +914,9 @@ export default function DiagnosticPage() {
               </div>
 
               <div className='space-y-3'>
-                <Label className='text-base font-medium'>Tamaño del equipo</Label>
+                <Label className='text-base font-medium'>
+                  Tamaño del equipo
+                </Label>
                 <RadioGroup
                   value={teamSize}
                   onValueChange={setTeamSize}
@@ -874,7 +925,10 @@ export default function DiagnosticPage() {
                   {[
                     { value: 'solo', label: 'Solo yo — Solopreneur' },
                     { value: '2_5', label: '2-5 personas — Equipo pequeño' },
-                    { value: '6_plus', label: '6+ personas — Equipo establecido' }
+                    {
+                      value: '6_plus',
+                      label: '6+ personas — Equipo establecido'
+                    }
                   ].map((opt) => (
                     <div key={opt.value} className='flex items-center gap-3'>
                       <RadioGroupItem
@@ -893,7 +947,9 @@ export default function DiagnosticPage() {
               </div>
 
               <div className='space-y-3'>
-                <Label className='text-base font-medium'>Expectativa del cliente</Label>
+                <Label className='text-base font-medium'>
+                  Expectativa del cliente
+                </Label>
                 <RadioGroup
                   value={expectation}
                   onValueChange={setExpectation}
@@ -906,7 +962,10 @@ export default function DiagnosticPage() {
                       value: 'long_term',
                       label: 'Quiero construir algo a largo plazo'
                     },
-                    { value: 'unsure', label: 'No estoy seguro de qué necesito' }
+                    {
+                      value: 'unsure',
+                      label: 'No estoy seguro de qué necesito'
+                    }
                   ].map((opt) => (
                     <div key={opt.value} className='flex items-center gap-3'>
                       <RadioGroupItem
@@ -966,40 +1025,61 @@ export default function DiagnosticPage() {
             {/* Recommended Plan */}
             <Card className='border-primary'>
               <CardHeader className='bg-primary/10 rounded-t-lg'>
-                <p className='text-sm font-medium text-muted-foreground'>Plan Recomendado</p>
-                <CardTitle className='text-xl text-primary'>{tierResult.planName}</CardTitle>
+                <p className='text-muted-foreground text-sm font-medium'>
+                  Plan Recomendado
+                </p>
+                <CardTitle className='text-primary text-xl'>
+                  {tierResult.planName}
+                </CardTitle>
               </CardHeader>
-              <CardContent className='pt-4 space-y-4'>
+              <CardContent className='space-y-4 pt-4'>
                 {/* Dual pricing for Presencia Digital */}
-                {tierResult.tier === 'presencia_digital' && 'priceInstallment' in tierResult ? (
+                {tierResult.tier === 'presencia_digital' &&
+                'priceInstallment' in tierResult ? (
                   <div className='grid grid-cols-2 gap-3'>
                     {/* Option A — highlighted (decoy target) */}
-                    <div className='rounded-xl border-2 border-primary bg-primary/5 p-4 text-center flex flex-col gap-1'>
-                      <p className='text-xs font-semibold text-primary uppercase tracking-wide'>Opción A</p>
-                      <p className='text-2xl font-bold text-primary'>3 × $1,100</p>
-                      <p className='text-xs text-muted-foreground'>pagos mensuales</p>
-                      <p className='text-sm font-medium mt-1'>Total $3,300</p>
+                    <div className='border-primary bg-primary/5 flex flex-col gap-1 rounded-xl border-2 p-4 text-center'>
+                      <p className='text-primary text-xs font-semibold tracking-wide uppercase'>
+                        Opción A
+                      </p>
+                      <p className='text-primary text-2xl font-bold'>
+                        3 × $1,100
+                      </p>
+                      <p className='text-muted-foreground text-xs'>
+                        pagos mensuales
+                      </p>
+                      <p className='mt-1 text-sm font-medium'>Total $3,300</p>
                     </div>
                     {/* Option B — discount */}
-                    <div className='rounded-xl border border-muted bg-muted/30 p-4 text-center flex flex-col gap-1 relative'>
-                      <span className='absolute -top-2 left-1/2 -translate-x-1/2 bg-green-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full'>
+                    <div className='border-muted bg-muted/30 relative flex flex-col gap-1 rounded-xl border p-4 text-center'>
+                      <span className='absolute -top-2 left-1/2 -translate-x-1/2 rounded-full bg-green-500 px-2 py-0.5 text-[10px] font-bold text-white'>
                         10% descuento
                       </span>
-                      <p className='text-xs font-semibold text-muted-foreground uppercase tracking-wide'>Opción B</p>
+                      <p className='text-muted-foreground text-xs font-semibold tracking-wide uppercase'>
+                        Opción B
+                      </p>
                       <p className='text-2xl font-bold'>$3,135</p>
-                      <p className='text-xs text-muted-foreground'>pago único</p>
-                      <p className='text-sm text-green-600 font-medium mt-1'>Ahorras $330</p>
+                      <p className='text-muted-foreground text-xs'>
+                        pago único
+                      </p>
+                      <p className='mt-1 text-sm font-medium text-green-600'>
+                        Ahorras $330
+                      </p>
                     </div>
                   </div>
                 ) : (
-                  <div className='text-center py-2'>
-                    <p className='text-3xl font-bold text-primary'>${tierResult.price.toLocaleString()}</p>
-                    <p className='text-xs text-muted-foreground'>{tierResult.billing}</p>
+                  <div className='py-2 text-center'>
+                    <p className='text-primary text-3xl font-bold'>
+                      ${tierResult.price.toLocaleString()}
+                    </p>
+                    <p className='text-muted-foreground text-xs'>
+                      {tierResult.billing}
+                    </p>
                   </div>
                 )}
 
                 <div>
-                  <p className='text-sm font-medium mb-2'>¿Qué incluye?</p>
+                  <p className='mb-2 text-sm font-medium'>¿Qué incluye?</p>
                   <ul className='space-y-1'>
                     {tierResult.features.map((f, i) => (
                       <li key={i} className='flex items-center gap-2 text-sm'>
@@ -1022,7 +1102,7 @@ export default function DiagnosticPage() {
                 {tierResult.scripts.map((script, i) => (
                   <div
                     key={i}
-                    className='rounded-lg bg-muted p-3 text-sm italic text-muted-foreground'
+                    className='bg-muted text-muted-foreground rounded-lg p-3 text-sm italic'
                   >
                     {script}
                   </div>
@@ -1042,7 +1122,7 @@ export default function DiagnosticPage() {
                       {saving ? 'Guardando...' : '✅ Guardar Lead'}
                     </Button>
                   ) : (
-                    <Badge variant='default' className='text-sm py-2 px-3'>
+                    <Badge variant='default' className='px-3 py-2 text-sm'>
                       ✓ Guardado
                     </Badge>
                   )}
@@ -1055,10 +1135,12 @@ export default function DiagnosticPage() {
                       onClick={handleGeneratePreview}
                       disabled={generatingPreview}
                     >
-                      {generatingPreview ? '⏳ Generando...' : '🔗 Generar Preview'}
+                      {generatingPreview
+                        ? '⏳ Generando...'
+                        : '🔗 Generar Preview'}
                     </Button>
                   ) : (
-                    <div className='flex flex-col gap-2 w-full'>
+                    <div className='flex w-full flex-col gap-2'>
                       <div className='flex gap-2'>
                         <Button
                           variant='default'
@@ -1078,13 +1160,20 @@ export default function DiagnosticPage() {
                         </Button>
                         <Button
                           variant='outline'
-                          className='bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
-                          onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent('Hola, aquí está tu preview personalizado: ' + previewUrl)}`, '_blank')}
+                          className='border-green-200 bg-green-50 text-green-700 hover:bg-green-100'
+                          onClick={() =>
+                            window.open(
+                              `https://wa.me/?text=${encodeURIComponent('Hola, aquí está tu preview personalizado: ' + previewUrl)}`,
+                              '_blank'
+                            )
+                          }
                         >
                           WhatsApp
                         </Button>
                       </div>
-                      <p className='text-xs text-muted-foreground truncate'>{previewUrl}</p>
+                      <p className='text-muted-foreground truncate text-xs'>
+                        {previewUrl}
+                      </p>
                     </div>
                   )}
                   <Button variant='outline' disabled>

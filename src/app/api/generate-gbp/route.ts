@@ -33,6 +33,7 @@ import {
   parseGbpJson,
   toGbpProfileRow,
   buildPreviewSnapshot,
+  guardGbpDescription,
   GbpDomainError,
   ASSET_STATUS_ON_PREVIEW,
   SLICE_ASSET_TYPE
@@ -257,6 +258,18 @@ export async function POST(request: NextRequest) {
       }
       throw e;
     }
+
+    // F-084 R-04/R-05 — guard de storage compartido: sanea la descripción
+    // anti-blob y bloquea la escritura si tras el saneo sigue pareciendo blob
+    // (defensa en el punto de storage, no solo en la página; DT-4).
+    const descGuard = guardGbpDescription(profileRow.description);
+    if (!descGuard.ok) {
+      return NextResponse.json(
+        { success: false, error: descGuard.message },
+        { status: 422 }
+      );
+    }
+    profileRow.description = descGuard.value;
 
     // --- Persist gbp_profiles (R-10) ---
     const { data: savedProfile, error: profileErr } = await supabase
