@@ -60,6 +60,7 @@ function makeFakeStore(opts: {
         snap_nap_consistent: row.snap_nap_consistent,
         snap_gbp_exists: row.snap_gbp_exists,
         snap_gbp_duplicate: row.snap_gbp_duplicate,
+        snap_gbp_mode: row.snap_gbp_mode, // F-083 (R-15)
         rationale: row.rationale,
         assessed_by: row.assessed_by,
         assessed_at: new Date(2026, 6, 17, 10, 0, seq).toISOString(),
@@ -95,7 +96,11 @@ const ELIGIBLE_EVIDENCE = {
   gbpProfile: {
     id: 'gbp-1',
     nap_consistent: true,
-    duplicate_check_status: 'clean'
+    duplicate_check_status: 'clean',
+    // F-083 (R-13): `gbp_exists` now derives from `verification_status`, NOT from the
+    // mere presence of the row. An attested existing GBP is `verified` (mode `existing`).
+    verification_status: 'verified',
+    gbp_mode: 'existing' as const
   }
 };
 
@@ -153,7 +158,10 @@ test('T-19 blocking evidence yields bloqueado + blockers persisted', async () =>
     gbpProfile: {
       id: 'gbp-2',
       nap_consistent: true,
-      duplicate_check_status: 'clean'
+      duplicate_check_status: 'clean',
+      // F-083 (R-13): verified existing GBP so the only failing signal is SoS → bloqueado.
+      verification_status: 'verified',
+      gbp_mode: 'existing' as const
     }
   });
   const row = await assessReadiness(store, { clientId: CLIENT_ID });
@@ -177,19 +185,36 @@ test('T-20 getLatestReadiness returns null when none exists', async () => {
   assert.equal(latest, null);
 });
 
-// --- buildReadinessInputs mapping (support for R-08 gbp_exists derivation) ---
-test('buildReadinessInputs: gbp_exists derives from presence of a gbp row', () => {
-  const withRow = buildReadinessInputs({
+// --- buildReadinessInputs mapping. F-083 (R-12/R-13): `gbp_exists` derives from
+// `verification_status`, NOT from the mere presence of the (draft) row. The old
+// `gbpProfile ? true : null` false positive is gone. ---
+test('buildReadinessInputs: gbp_exists derives from verification_status, not row presence', () => {
+  // A draft row WITHOUT verification (the JD Valley shape) is NOT `true` anymore.
+  const draftRow = buildReadinessInputs({
     credential: null,
     napCheck: null,
     gbpProfile: {
       id: 'g',
       nap_consistent: true,
       duplicate_check_status: 'clean'
+      // no verification_status → pending/unknown → null (no false positive)
     }
   });
-  assert.equal(withRow.presence.gbp_exists, true);
-  assert.equal(withRow.presence.gbp_duplicate, false);
+  assert.equal(draftRow.presence.gbp_exists, null);
+  assert.equal(draftRow.presence.gbp_duplicate, false);
+  assert.equal(draftRow.presence.gbp_mode, 'existing'); // R-02 default
+
+  // A verified row → true.
+  const verifiedRow = buildReadinessInputs({
+    credential: null,
+    napCheck: null,
+    gbpProfile: {
+      id: 'g',
+      duplicate_check_status: 'clean',
+      verification_status: 'verified'
+    }
+  });
+  assert.equal(verifiedRow.presence.gbp_exists, true);
 
   const withoutRow = buildReadinessInputs({
     credential: null,
@@ -197,6 +222,7 @@ test('buildReadinessInputs: gbp_exists derives from presence of a gbp row', () =
     gbpProfile: null
   });
   assert.equal(withoutRow.presence.gbp_exists, null);
+  assert.equal(withoutRow.presence.gbp_mode, 'existing');
 });
 
 test('mapDuplicateStatus maps text status to boolean signal', () => {

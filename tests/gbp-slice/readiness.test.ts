@@ -250,6 +250,8 @@ test('T-18 snapshot captures the signal values used', () => {
     nap_risk: 'consistent',
     nap_consistent: true,
     gbp_exists: true,
-    gbp_duplicate: false
+    gbp_duplicate: false,
+    // F-083 (R-15): snapshot gained gbp_mode; absent input → null (backward-compat).
+    gbp_mode: null
   });
 });

@@ -21,10 +21,17 @@ import type {
   SosStatus,
   NapRisk,
   EligibilityVerdict,
-  ReadinessBlocker
+  ReadinessBlocker,
+  GbpMode
 } from '../../types/c3-domain.ts';
 
-export type { SosStatus, NapRisk, EligibilityVerdict, ReadinessBlocker };
+export type {
+  SosStatus,
+  NapRisk,
+  EligibilityVerdict,
+  ReadinessBlocker,
+  GbpMode
+};
 
 /** LEGAL evidence, evaluated per-CLIENT and inherited to each location (R-07). */
 export interface ReadinessLegalInput {
@@ -43,6 +50,10 @@ export interface ReadinessPresenceInput {
   nap_consistent: boolean | null;
   gbp_exists: boolean | null;
   gbp_duplicate: boolean | null;
+  /** F-083 (R-01/R-06): create-vs-existing axis. In `create` mode the GBP existence
+   * and external-NAP-consistency signals are `no_aplica` (R-07/R-08/R-09). Absent/null
+   * is treated as `existing` (R-02, backward-compat). */
+  gbp_mode?: GbpMode | null;
 }
 
 /** Snapshot persisted alongside the verdict (R-04). Mirrors the `snap_*` columns. */
@@ -54,6 +65,8 @@ export interface ReadinessSnapshot {
   nap_consistent: boolean | null;
   gbp_exists: boolean | null;
   gbp_duplicate: boolean | null;
+  /** F-083 (R-15): the create-vs-existing mode used, persisted as `snap_gbp_mode`. */
+  gbp_mode: GbpMode | null;
 }
 
 export interface ReadinessResult {
@@ -115,6 +128,12 @@ function evalCslb(legal: ReadinessLegalInput): SignalEval {
 
 /** NAP presence signal (per-location). */
 function evalNap(presence: ReadinessPresenceInput): SignalEval {
+  // F-083 (R-09): in create mode the external NAP-consistency signal is inapplicable
+  // (no external listing exists yet) → `no_aplica`, excluded from the verdict so a
+  // `nap_risk=partial` from presence items never degrades it.
+  if (presence.gbp_mode === 'create') {
+    return { status: 'no_aplica', blockers: [] };
+  }
   const risk = presence.nap_risk;
   if (risk === null || risk === undefined) {
     return { status: 'unknown', blockers: [] };
@@ -127,6 +146,12 @@ function evalNap(presence: ReadinessPresenceInput): SignalEval {
 
 /** GBP existence/duplicates presence signal (per-location). */
 function evalGbp(presence: ReadinessPresenceInput): SignalEval {
+  // F-083 (R-07/R-08): in create mode the GBP absence is the PRECONDITION, not a
+  // failure → `no_aplica`. The existence/duplicate source is not consulted and
+  // `gbp_missing` is never emitted.
+  if (presence.gbp_mode === 'create') {
+    return { status: 'no_aplica', blockers: [] };
+  }
   const exists = presence.gbp_exists;
   if (exists === null || exists === undefined) {
     return { status: 'unknown', blockers: [] };
@@ -177,7 +202,8 @@ export function computeReadiness(input: {
     nap_risk: presence?.nap_risk ?? null,
     nap_consistent: presence?.nap_consistent ?? null,
     gbp_exists: presence?.gbp_exists ?? null,
-    gbp_duplicate: presence?.gbp_duplicate ?? null
+    gbp_duplicate: presence?.gbp_duplicate ?? null,
+    gbp_mode: presence?.gbp_mode ?? null // R-15
   };
 
   // Whole-side absence → those signals are simply unknown.
@@ -191,7 +217,8 @@ export function computeReadiness(input: {
     nap_risk: null,
     nap_consistent: null,
     gbp_exists: null,
-    gbp_duplicate: null
+    gbp_duplicate: null,
+    gbp_mode: null
   };
 
   const evals: Record<string, SignalEval> = {

@@ -23,6 +23,23 @@ import {
   type NapReadClient,
   type NapWriteClient
 } from '@/lib/onboarding/nap-check';
+import {
+  GBP_MODE_OPTIONS,
+  isPresenceItemNA,
+  buildGbpPresencePayload,
+  loadGbpPresence,
+  persistGbpPresence,
+  type GbpMode,
+  type GbpPresenceReadClient,
+  type GbpPresenceWriteClient
+} from '@/lib/onboarding/gbp-mode';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 
 export default function NAPPage() {
   const { clientId } = useParams<{ clientId: string }>();
@@ -41,6 +58,11 @@ export default function NAPPage() {
   const [napCheckId, setNapCheckId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // F-083: create-vs-existing axis (R-03) + verification attestation (R-14), persisted
+  // to `gbp_profiles`.
+  const [gbpMode, setGbpMode] = useState<GbpMode>('existing');
+  const [attested, setAttested] = useState(false);
+  const [gbpProfileId, setGbpProfileId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!userLoading && tenantId && clientId) {
@@ -70,6 +92,17 @@ export default function NAPPage() {
     if (nap.napCheckId) setNapCheckId(nap.napCheckId);
     setChecklist(nap.checklist);
     setNotes(nap.notes);
+
+    // F-083 (R-03/R-14): load the create-vs-existing axis + attestation from
+    // `gbp_profiles` (maybeSingle → legacy/missing rows default to `existing`).
+    const presence = await loadGbpPresence(
+      supabase as unknown as GbpPresenceReadClient,
+      clientId
+    );
+    setGbpProfileId(presence.gbpProfileId);
+    setGbpMode(presence.gbpMode);
+    setAttested(presence.verificationStatus === 'verified');
+
     setLoading(false);
   };
 
@@ -121,6 +154,20 @@ export default function NAPPage() {
 
     if (ok) {
       if (newId) setNapCheckId(newId);
+      // F-083 (R-03/R-14): persist the create-vs-existing axis + attestation to
+      // `gbp_profiles`. Surfaces its own error; never fires a false success toast.
+      try {
+        await persistGbpPresence({
+          supabase: supabase as unknown as GbpPresenceWriteClient,
+          gbpProfileId,
+          payload: buildGbpPresencePayload({ gbpMode, attested })
+        });
+      } catch (error) {
+        console.error('Error saving GBP mode:', error);
+        toast.error('Error al guardar el modo GBP');
+        setSaving(false);
+        return;
+      }
       toast.success('Verificación NAP guardada');
     }
     setSaving(false);
@@ -182,6 +229,65 @@ export default function NAPPage() {
           </CardContent>
         </Card>
 
+        {/* F-083 (R-03): root question — branches the flow + sets gbp_mode */}
+        <Card>
+          <CardHeader>
+            <CardTitle className='text-base'>Presencia en Google</CardTitle>
+          </CardHeader>
+          <CardContent className='space-y-4'>
+            <div className='space-y-2'>
+              <Label>
+                ¿El negocio ya tiene un Google Business Profile en Google?
+              </Label>
+              <Select
+                value={gbpMode}
+                onValueChange={(v) => setGbpMode(v as GbpMode)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {GBP_MODE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {gbpMode === 'create' && (
+                <p className='text-muted-foreground text-xs'>
+                  Modo crear: las verificaciones que dependen de un GBP
+                  existente no aplican (N/A) y no cuentan en contra.
+                </p>
+              )}
+            </div>
+
+            {/* F-083 (R-14): attestation — existing mode only */}
+            {gbpMode === 'existing' && (
+              <div className='flex items-start gap-3 rounded-lg border p-3'>
+                <Checkbox
+                  id='gbp_verified_attested'
+                  checked={attested}
+                  onCheckedChange={(c) => setAttested(!!c)}
+                  className='mt-0.5'
+                />
+                <div className='flex-1'>
+                  <Label
+                    htmlFor='gbp_verified_attested'
+                    className='cursor-pointer font-medium'
+                  >
+                    GBP verificado/reclamado en Google
+                  </Label>
+                  <p className='text-muted-foreground mt-0.5 text-xs'>
+                    Atestiguo que el GBP existe y está verificado/reclamado
+                    (fija verification_status = verified).
+                  </p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {/* External Search Buttons */}
         <Card>
           <CardHeader>
@@ -223,35 +329,50 @@ export default function NAPPage() {
           </CardHeader>
           <CardContent>
             <div className='space-y-3'>
-              {NAP_CHECKLIST.map((item) => (
-                <div
-                  key={item.id}
-                  className='flex items-start gap-3 rounded-lg border p-3'
-                >
-                  <Checkbox
-                    id={item.id}
-                    checked={!!checklist[item.id]}
-                    onCheckedChange={(checked) =>
-                      setChecklist((prev) => ({
-                        ...prev,
-                        [item.id]: !!checked
-                      }))
-                    }
-                    className='mt-0.5'
-                  />
-                  <div className='flex-1'>
-                    <Label
-                      htmlFor={item.id}
-                      className='cursor-pointer font-medium'
-                    >
-                      {item.label}
-                    </Label>
-                    <p className='text-muted-foreground mt-0.5 text-xs'>
-                      {item.description}
-                    </p>
+              {NAP_CHECKLIST.map((item) => {
+                // F-083 (R-04): presence-dependent items are N/A in create mode —
+                // disabled, forced unchecked, not required, not penalizing.
+                const na = isPresenceItemNA(item.id, gbpMode);
+                return (
+                  <div
+                    key={item.id}
+                    className={`flex items-start gap-3 rounded-lg border p-3 ${
+                      na ? 'opacity-60' : ''
+                    }`}
+                  >
+                    <Checkbox
+                      id={item.id}
+                      checked={na ? false : !!checklist[item.id]}
+                      disabled={na}
+                      onCheckedChange={(checked) =>
+                        setChecklist((prev) => ({
+                          ...prev,
+                          [item.id]: !!checked
+                        }))
+                      }
+                      className='mt-0.5'
+                    />
+                    <div className='flex-1'>
+                      <div className='flex items-center gap-2'>
+                        <Label
+                          htmlFor={item.id}
+                          className='cursor-pointer font-medium'
+                        >
+                          {item.label}
+                        </Label>
+                        {na && (
+                          <Badge variant='secondary' className='text-xs'>
+                            N/A (modo crear)
+                          </Badge>
+                        )}
+                      </div>
+                      <p className='text-muted-foreground mt-0.5 text-xs'>
+                        {item.description}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </CardContent>
         </Card>
