@@ -29,7 +29,7 @@ type Preview = {
   id: string;
   token: string;
   client_id: string;
-  preview_type: string;
+  type: string;
   expires_at: string;
   approved: boolean;
   created_at: string;
@@ -94,7 +94,7 @@ export default function PreviewGeneratorPage() {
         .insert({
           client_id: selectedClientId,
           token,
-          preview_type: previewType,
+          type: previewType,
           expires_at: expiresAt.toISOString(),
           approved: false,
           created_by: user.id
@@ -147,7 +147,7 @@ export default function PreviewGeneratorPage() {
       pageTitle='Generador de Previews'
       pageDescription='Genera links de preview para compartir con clientes'
     >
-      <div className='flex flex-1 flex-col gap-4 p-4 md:px-6 max-w-3xl'>
+      <div className='flex max-w-3xl flex-1 flex-col gap-4 p-4 md:px-6'>
         {/* Generator */}
         <Card>
           <CardHeader>
@@ -181,7 +181,9 @@ export default function PreviewGeneratorPage() {
                 <SelectContent>
                   <SelectItem value='gbp'>GBP Profile</SelectItem>
                   <SelectItem value='website'>Website</SelectItem>
-                  <SelectItem value='combined'>Combinado (GBP + Website)</SelectItem>
+                  <SelectItem value='combined'>
+                    Combinado (GBP + Website)
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -202,7 +204,7 @@ export default function PreviewGeneratorPage() {
           </CardHeader>
           <CardContent>
             {generatedPreviews.length === 0 ? (
-              <p className='text-sm text-muted-foreground py-4 text-center'>
+              <p className='text-muted-foreground py-4 text-center text-sm'>
                 No hay previews generados todavía
               </p>
             ) : (
@@ -217,46 +219,43 @@ export default function PreviewGeneratorPage() {
                       key={preview.id}
                       className='flex items-center justify-between rounded-lg border p-3'
                     >
-                      <div className='flex-1 min-w-0'>
-                        <p className='text-sm font-medium truncate'>
+                      <div className='min-w-0 flex-1'>
+                        <p className='truncate text-sm font-medium'>
                           {client?.business_name || 'Cliente desconocido'}
                         </p>
-                        <div className='flex items-center gap-2 mt-1'>
+                        <div className='mt-1 flex items-center gap-2'>
                           <Badge
-                            variant={
-                              preview.approved ? 'default' : 'secondary'
-                            }
+                            variant={preview.approved ? 'default' : 'secondary'}
                             className='text-xs'
                           >
                             {preview.approved ? '✓ Aprobado' : 'Pendiente'}
                           </Badge>
-                          <span className='text-xs text-muted-foreground capitalize'>
-                            {preview.preview_type}
+                          <span className='text-muted-foreground text-xs capitalize'>
+                            {preview.type}
                           </span>
                           {isExpired && (
-                            <Badge
-                              variant='destructive'
-                              className='text-xs'
-                            >
+                            <Badge variant='destructive' className='text-xs'>
                               Expirado
                             </Badge>
                           )}
                         </div>
-                        <p className='text-xs text-muted-foreground mt-0.5'>
+                        <p className='text-muted-foreground mt-0.5 text-xs'>
                           Expira:{' '}
                           {new Date(preview.expires_at).toLocaleDateString(
                             'es-MX'
                           )}
                         </p>
                       </div>
-                      <div className='flex gap-2 ml-3'>
+                      <div className='ml-3 flex gap-2'>
                         <Button
                           variant='outline'
                           size='sm'
                           onClick={() => copyLink(preview.token, preview.id)}
                           disabled={isExpired}
                         >
-                          {copiedId === preview.id ? '✓ Copiado' : 'Copiar link'}
+                          {copiedId === preview.id
+                            ? '✓ Copiado'
+                            : 'Copiar link'}
                         </Button>
                         <Button
                           variant='ghost'

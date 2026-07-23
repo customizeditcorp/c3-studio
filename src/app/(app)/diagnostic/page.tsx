@@ -462,7 +462,7 @@ export default function DiagnosticPage() {
       const { error } = await supabase.from('previews').insert({
         client_id: savedClientId,
         token,
-        preview_type: 'combined',
+        type: 'combined',
         expires_at: expiresAt.toISOString(),
         metadata: previewMeta,
         created_by: authUser.id
