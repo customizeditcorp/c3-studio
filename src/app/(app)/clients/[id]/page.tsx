@@ -14,31 +14,12 @@ import PageContainer from '@/components/layout/page-container';
 import ClientForm from '@/components/clients/ClientForm';
 import { useUser } from '@/contexts/UserContext';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
-import {
-  getLatestReadiness,
-  createSupabaseReadinessStore
-} from '@/lib/gbp-slice/readiness-repo';
-import type { EligibilityVerdict } from '@/types/c3-domain';
+import ReadinessPanelBody from '@/components/readiness/readiness-panel-body';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Icons } from '@/components/icons';
 import { ClientAssetHub } from './client-asset-hub';
-
-// F-085 (R-03/R-04) — Réplica local del mapa veredicto→{label,color} de
-// `onboarding/readiness/[clientId]/page.tsx` (L34-42), extendida con el estado
-// sin-assessment (`sin_evaluacion`). No se exporta ni refactoriza el original
-// para no ampliar el blast radius (design §1).
-const VERDICT_META: Record<
-  EligibilityVerdict | 'sin_evaluacion',
-  { label: string; color: 'default' | 'secondary' | 'destructive' | 'outline' }
-> = {
-  elegible: { label: 'Elegible', color: 'default' },
-  bloqueado: { label: 'Bloqueado', color: 'destructive' },
-  necesita_fix: { label: 'Necesita corrección', color: 'secondary' },
-  datos_insuficientes: { label: 'Datos insuficientes', color: 'outline' },
-  sin_evaluacion: { label: 'Sin evaluación', color: 'outline' }
-};
 
 const STATUS_LABELS: Record<string, string> = {
   lead: 'Lead',
@@ -81,9 +62,6 @@ export default function ClientDetailPage() {
   const [client, setClient] = useState<Client | null>(null);
   const [loading, setLoading] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
-  // F-085 (R-06) — último veredicto de readiness del cliente en contexto.
-  const [readinessVerdict, setReadinessVerdict] =
-    useState<EligibilityVerdict | null>(null);
 
   type ProgressState = {
     hasDiagnostic: boolean;
@@ -131,8 +109,7 @@ export default function ClientDetailPage() {
       { data: ofvData },
       { data: gbpData },
       { data: photosData },
-      { data: previewData },
-      readinessVerdictResult
+      { data: previewData }
     ] = await Promise.all([
       supabase
         .from('diagnostics')
@@ -191,21 +168,7 @@ export default function ClientDetailPage() {
         .select('id')
         .eq('client_id', id)
         .limit(1)
-        .maybeSingle(),
-      // F-085 (R-06/R-08) — último veredicto de readiness, por el mismo camino
-      // client-side que el resto de la ficha. Degradación honesta: ante error
-      // (p. ej. tabla ausente / respuesta de error) → null, sin romper el render,
-      // replicando el try/catch del panel (readiness/[clientId]/page.tsx L77-80).
-      (async (): Promise<EligibilityVerdict | null> => {
-        try {
-          const store = createSupabaseReadinessStore(supabase);
-          const row = await getLatestReadiness(store, id);
-          return row?.verdict ?? null;
-        } catch (error) {
-          console.error('Error loading readiness verdict:', error);
-          return null;
-        }
-      })()
+        .maybeSingle()
     ]);
 
     setProgress({
@@ -219,9 +182,6 @@ export default function ClientDetailPage() {
       hasApprovedPhotos: !!photosData,
       previewSent: !!previewData
     });
-
-    // F-085 (R-06/R-07) — veredicto resuelto para el clientId en contexto.
-    setReadinessVerdict(readinessVerdictResult);
 
     setLoading(false);
   };
@@ -575,31 +535,21 @@ export default function ClientDetailPage() {
           </TabsContent>
 
           <TabsContent value='readiness' className='mt-4'>
-            <Card>
-              <CardContent className='py-8 text-center'>
-                <p className='text-muted-foreground mb-4'>
-                  Readiness de elegibilidad GBP
-                </p>
-                {/* F-085 (R-03/R-04/R-05) — Badge de solo-lectura con el último
-                    veredicto. NO navega (sin asChild/onClick/href); solo el botón
-                    de abajo abre el panel (DT-3). `null` → "Sin evaluación". */}
-                <div className='mb-4 flex justify-center'>
-                  <Badge
-                    variant={
-                      VERDICT_META[readinessVerdict ?? 'sin_evaluacion'].color
-                    }
-                    className='px-3 py-1 text-sm'
-                  >
-                    {VERDICT_META[readinessVerdict ?? 'sin_evaluacion'].label}
-                  </Badge>
-                </div>
-                <Button asChild>
+            {/* F-086 (R-03) — Bloque completo de readiness (veredicto + blockers +
+                evidencia + botón "Evaluar") vía el componente compartido
+                `ReadinessPanelBody` (single source of truth con el panel). El badge
+                standalone de F-085 queda subsumido por la card de Veredicto. */}
+            <div className='max-w-3xl'>
+              <ReadinessPanelBody clientId={client.id} />
+              {/* Deep-link al panel standalone (no-regresión F-085, DT-2). */}
+              <div className='mt-4'>
+                <Button asChild variant='outline'>
                   <Link href={`/onboarding/readiness/${client.id}`}>
-                    Ver Readiness
+                    Abrir panel
                   </Link>
                 </Button>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </TabsContent>
 
           <TabsContent value='presencia' className='mt-4'>
