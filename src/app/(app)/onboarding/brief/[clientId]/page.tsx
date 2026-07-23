@@ -503,6 +503,17 @@ export default function BriefPage() {
   const updateBrief = (key: keyof BriefFields, val: string) =>
     setBriefFields((prev) => ({ ...prev, [key]: val }));
 
+  // F-084 R-07/R-08 — espejar city/state del brief a `clients` (home canónico,
+  // DT-1), además del narrativo en `briefs.content`. Solo escribe valores no
+  // vacíos para no sobrescribir con blancos un valor existente.
+  const mirrorCityStateToClient = async () => {
+    const patch: Record<string, string> = {};
+    if (briefFields.city) patch.city = briefFields.city;
+    if (briefFields.state) patch.state = briefFields.state;
+    if (Object.keys(patch).length === 0) return;
+    await supabase.from('clients').update(patch).eq('id', clientId);
+  };
+
   const handleGenerateBrief = async () => {
     if (!clientId || !user?.id || !tenantId) {
       toast.error('Faltan datos');
@@ -554,6 +565,8 @@ export default function BriefPage() {
         .from('briefs')
         .update({ status: 'approved', content: fieldsToContent(briefFields) })
         .eq('id', briefRecord.id);
+      // F-084 R-07/R-08 — espejar city/state a `clients` en el mismo save.
+      await mirrorCityStateToClient();
       setBriefRecord((prev) => (prev ? { ...prev, status: 'approved' } : prev));
       await logActivity({
         tenantId,
@@ -579,6 +592,8 @@ export default function BriefPage() {
         .from('briefs')
         .update({ content: fieldsToContent(briefFields) })
         .eq('id', briefRecord.id);
+      // F-084 R-07/R-08 — espejar city/state a `clients` en el mismo save.
+      await mirrorCityStateToClient();
       toast.success('Borrador guardado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Error desconocido';

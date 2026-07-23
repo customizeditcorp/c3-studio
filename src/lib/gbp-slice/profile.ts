@@ -18,13 +18,22 @@ export class GbpDomainError extends Error {
   }
 }
 
-/** Parses the model's JSON output (strips code fences). Throws a legible domain
- * error on unparseable output so the route never writes a partial row (R-11). */
-export function parseGbpJson(text: string): Record<string, unknown> {
-  const cleaned = text
+/**
+ * Strips Markdown code fences (```json / ```) from a model/text blob and trims.
+ * Shared primitive so `parseGbpJson` (F-066) and the F-084 storage sanitizer
+ * (`sanitizeGbpDescription`) apply the exact same fence-stripping logic.
+ */
+export function stripCodeFences(text: string): string {
+  return text
     .replace(/```json\n?/g, '')
     .replace(/```\n?/g, '')
     .trim();
+}
+
+/** Parses the model's JSON output (strips code fences). Throws a legible domain
+ * error on unparseable output so the route never writes a partial row (R-11). */
+export function parseGbpJson(text: string): Record<string, unknown> {
+  const cleaned = stripCodeFences(text);
   try {
     const parsed = JSON.parse(cleaned);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {

@@ -38,6 +38,13 @@ import {
   serializeServiceArea,
   type PreconditionState
 } from '@/lib/gbp-trigger-state';
+// F-084 — guards de write-path del draft GBP (sanitizer + zip + límite corto).
+import {
+  guardGbpDescription,
+  clampShortDescription,
+  validateAddressZip,
+  SHORT_DESCRIPTION_MAX
+} from '@/lib/gbp-slice/profile-edit';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -110,6 +117,8 @@ export default function GBPPage() {
   const [businessName, setBusinessName] = useState('');
   const [primaryCategory, setPrimaryCategory] = useState('');
   const [description, setDescription] = useState('');
+  // F-084 R-01 — short_description editable (antes: nunca cargado ni guardado).
+  const [shortDescription, setShortDescription] = useState('');
   const [phone, setPhone] = useState('');
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [address, setAddress] = useState('');
@@ -178,6 +187,8 @@ export default function GBPPage() {
       setBusinessName(gbpData.business_name || clientData?.business_name || '');
       setPrimaryCategory(gbpData.primary_category || '');
       setDescription(gbpData.description || '');
+      // F-084 R-01 — cargar short_description existente en el campo editable.
+      setShortDescription(gbpData.short_description || '');
       setPhone(gbpData.phone || clientData?.phone || '');
       setWebsiteUrl(gbpData.website_url || '');
       setAddress(gbpData.address || '');
@@ -239,13 +250,34 @@ export default function GBPPage() {
 
   const handleSaveProfile = async () => {
     if (!tenantId || !user) return;
+
+    // F-084 R-04/R-05 — sanear la descripción anti-blob ANTES de persistir; si
+    // tras el saneo sigue pareciendo blob, bloquear la escritura (no persistir).
+    const descGuard = guardGbpDescription(description);
+    if (!descGuard.ok) {
+      toast.error(descGuard.message ?? 'Descripción inválida');
+      return;
+    }
+
+    // F-084 R-09/R-10 — validar el zip del address (US 5 dígitos, opcional +4)
+    // antes de persistir; address vacío es válido (SAB).
+    const zipCheck = validateAddressZip(address);
+    if (!zipCheck.valid) {
+      toast.error(zipCheck.message ?? 'Dirección inválida');
+      return;
+    }
+
     setSaving(true);
 
     const data = {
       client_id: clientId,
       business_name: businessName,
       primary_category: primaryCategory,
-      description,
+      // F-084 R-04 — persistir SIEMPRE el valor saneado (nunca el blob crudo).
+      description: descGuard.value,
+      // F-084 R-02/R-03 — short_description ahora se persiste desde la edición,
+      // recortado al límite del campo corto (antes: el payload lo omitía).
+      short_description: clampShortDescription(shortDescription),
       phone,
       website_url: websiteUrl,
       address,
@@ -632,6 +664,25 @@ export default function GBPPage() {
                     }
                     placeholder='Descripción del negocio para Google...'
                     rows={4}
+                  />
+                </div>
+                {/* F-084 R-01/R-02/R-03 — short_description editable + persistido */}
+                <div className='space-y-2 sm:col-span-2'>
+                  <Label>
+                    Descripción corta{' '}
+                    <span className='text-muted-foreground text-xs'>
+                      ({shortDescription.length}/{SHORT_DESCRIPTION_MAX})
+                    </span>
+                  </Label>
+                  <Textarea
+                    value={shortDescription}
+                    onChange={(e) =>
+                      setShortDescription(
+                        e.target.value.slice(0, SHORT_DESCRIPTION_MAX)
+                      )
+                    }
+                    placeholder='Resumen corto del negocio (una o dos frases)...'
+                    rows={2}
                   />
                 </div>
                 {/* F-068 CL-036 — service_area jsonb {notes, cities} as two inputs */}
