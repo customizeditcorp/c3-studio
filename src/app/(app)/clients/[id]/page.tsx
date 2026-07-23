@@ -6,37 +6,40 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import PageContainer from '@/components/layout/page-container';
 import ClientForm from '@/components/clients/ClientForm';
 import { useUser } from '@/contexts/UserContext';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import ReadinessPanelBody from '@/components/readiness/readiness-panel-body';
+import {
+  CLIENT_STATUS_VALUES,
+  STATUS_LABELS,
+  STATUS_STEPS,
+  isLinearStatus,
+  statusLabel,
+  statusStepIndex,
+  persistClientStatus,
+  type ClientStatusWriteClient
+} from '@/lib/clients/client-status';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { Icons } from '@/components/icons';
 import { ClientAssetHub } from './client-asset-hub';
-
-const STATUS_LABELS: Record<string, string> = {
-  lead: 'Lead',
-  diagnosed: 'Diagnosticado',
-  negotiating: 'Negociando',
-  onboarding: 'Onboarding',
-  active: 'Activo',
-  churned: 'Perdido'
-};
-
-const STATUS_STEPS = [
-  'lead',
-  'diagnosed',
-  'negotiating',
-  'onboarding',
-  'active'
-];
 
 // F-087 (R-09) — etiquetas legibles del lifecycle + origen del activo GBP (read-only).
 const GBP_LIFECYCLE_LABELS: Record<string, string> = {
@@ -75,6 +78,13 @@ export default function ClientDetailPage() {
   const [client, setClient] = useState<Client | null>(null);
   const [loading, setLoading] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
+
+  // F-088 — UI de transición de estado (DT-03: dropdown + confirmación + write-path
+  // manual client-side). `pendingStatus` = destino seleccionado a la espera de confirmar;
+  // nada se persiste hasta que el operador confirma (R-09).
+  const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [savingStatus, setSavingStatus] = useState(false);
 
   // F-087 (R-09) — reflejo READ-ONLY del estado del activo GBP en la ficha: origen
   // (`gbp_mode`) DISTINGUIDO del estado del lifecycle (`verification_status`). La ficha
@@ -225,6 +235,48 @@ export default function ClientDetailPage() {
     }
   }, [tenantId, userLoading, id]);
 
+  // F-088 — el operador selecciona un destino en el dropdown → abre el diálogo de
+  // confirmación (R-09). Nada se persiste hasta confirmar; seleccionar el estado actual
+  // es un no-op.
+  const requestStatusChange = (target: string) => {
+    if (!client || target === client.status) return;
+    setPendingStatus(target);
+    setConfirmOpen(true);
+  };
+
+  // F-088 — confirma la transición: persiste vía la seam `persistClientStatus`
+  // (validación app-side del destino R-10 + error honesto R-11) y refresca la ficha
+  // in-place (título/descr, timeline, badge) tras éxito (R-05, R-06, R-08).
+  const confirmStatusChange = async () => {
+    const target = pendingStatus;
+    if (!client || !target || !tenantId) return;
+    setSavingStatus(true);
+    try {
+      await persistClientStatus({
+        supabase: supabase as unknown as ClientStatusWriteClient,
+        clientId: client.id,
+        tenantId,
+        target
+      });
+      setConfirmOpen(false);
+      setPendingStatus(null);
+      await fetchClient(); // refresh in-place tras la write confirmada (§6.1)
+      toast.success(`Estado actualizado a "${statusLabel(target)}"`);
+    } catch (err) {
+      // R-11: surfacing honesto; el estado del cliente NO cambia (sin éxito silencioso).
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`No se pudo actualizar el estado: ${message}`);
+    } finally {
+      setSavingStatus(false);
+    }
+  };
+
+  // F-088 — cancelar el diálogo deja el estado sin cambio (R-09).
+  const cancelStatusChange = () => {
+    setConfirmOpen(false);
+    setPendingStatus(null);
+  };
+
   if (loading) {
     return (
       <PageContainer pageTitle='Cliente'>
@@ -252,12 +304,16 @@ export default function ClientDetailPage() {
     );
   }
 
-  const currentStatusIndex = STATUS_STEPS.indexOf(client.status);
+  // F-088 (R-13) — `statusStepIndex` devuelve -1 para estados NO-lineales
+  // (`paused`/`churned`) o desconocidos. NO usamos ese -1 para pintar todo como futuro;
+  // `linearStatus` decide si mostrar el carril lineal o el badge fuera-de-carril.
+  const linearStatus = isLinearStatus(client.status);
+  const currentStatusIndex = statusStepIndex(client.status);
 
   return (
     <PageContainer
       pageTitle={client.business_name}
-      pageDescription={`${client.industry?.replace(/_/g, ' ')} · ${STATUS_LABELS[client.status] || client.status}`}
+      pageDescription={`${client.industry?.replace(/_/g, ' ')} · ${statusLabel(client.status)}`}
       pageHeaderAction={
         <div className='flex gap-2'>
           <Button variant='outline' onClick={() => setEditOpen(true)}>
@@ -273,37 +329,74 @@ export default function ClientDetailPage() {
       }
     >
       <div className='flex flex-1 flex-col gap-4 p-4 md:px-6'>
-        {/* Status Timeline */}
+        {/* Status Timeline + control de transición (F-088) */}
         <Card>
-          <CardHeader>
+          <CardHeader className='flex flex-row items-center justify-between gap-2'>
             <CardTitle className='text-muted-foreground text-sm font-medium'>
               Progreso
             </CardTitle>
+            {/* F-088 (R-07, DT-03) — dropdown de transición any-to-any: destinos = set
+                completo de `client_status`. Al seleccionar dispara la confirmación
+                (R-09); nada se persiste hasta confirmar. */}
+            <div className='flex items-center gap-2'>
+              <span className='text-muted-foreground text-xs'>Estado:</span>
+              <Select value={client.status} onValueChange={requestStatusChange}>
+                <SelectTrigger
+                  className='h-8 w-[190px]'
+                  aria-label='Estado del cliente'
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CLIENT_STATUS_VALUES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {STATUS_LABELS[s]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </CardHeader>
           <CardContent>
-            <div className='flex items-center gap-2 overflow-x-auto'>
-              {STATUS_STEPS.map((step, index) => (
-                <div key={step} className='flex items-center gap-2'>
-                  <div
-                    className={`flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium ${
-                      index < currentStatusIndex
-                        ? 'bg-primary/20 text-primary'
-                        : index === currentStatusIndex
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted text-muted-foreground'
-                    }`}
-                  >
-                    {index < currentStatusIndex && '✓ '}
-                    {STATUS_LABELS[step]}
-                  </div>
-                  {index < STATUS_STEPS.length - 1 && (
+            {/* F-088 (R-13) — estado NO-lineal (`paused`/`churned`): badge explícito
+                fuera-de-carril en vez de pintar la timeline como "antes del paso 1". */}
+            {!linearStatus && (
+              <div className='mb-3'>
+                <Badge variant='secondary'>
+                  Estado actual: {statusLabel(client.status)} — fuera del flujo
+                  lineal
+                </Badge>
+              </div>
+            )}
+            {linearStatus ? (
+              <div className='flex items-center gap-2 overflow-x-auto'>
+                {STATUS_STEPS.map((step, index) => (
+                  <div key={step} className='flex items-center gap-2'>
                     <div
-                      className={`h-px w-8 ${index < currentStatusIndex ? 'bg-primary' : 'bg-border'}`}
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
+                      className={`flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium ${
+                        index < currentStatusIndex
+                          ? 'bg-primary/20 text-primary'
+                          : index === currentStatusIndex
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-muted text-muted-foreground'
+                      }`}
+                    >
+                      {index < currentStatusIndex && '✓ '}
+                      {STATUS_LABELS[step]}
+                    </div>
+                    {index < STATUS_STEPS.length - 1 && (
+                      <div
+                        className={`h-px w-8 ${index < currentStatusIndex ? 'bg-primary' : 'bg-border'}`}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className='text-muted-foreground text-xs'>
+                Este estado no forma parte del flujo lineal de progreso.
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -398,7 +491,7 @@ export default function ClientDetailPage() {
                       Estado
                     </p>
                     <Badge variant='default'>
-                      {STATUS_LABELS[client.status] || client.status}
+                      {statusLabel(client.status)}
                     </Badge>
                   </div>
                   {client.tier && (
@@ -618,6 +711,38 @@ export default function ClientDetailPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* F-088 — Diálogo de confirmación de transición de estado (R-09). Cancelar deja
+          el estado sin cambio; Confirmar persiste vía la seam (R-05/R-11). */}
+      <Dialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          if (!open) cancelStatusChange();
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cambiar estado del cliente</DialogTitle>
+            <DialogDescription>
+              {pendingStatus && client
+                ? `¿Cambiar el estado de "${statusLabel(client.status)}" a "${statusLabel(pendingStatus)}"?`
+                : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={cancelStatusChange}
+              disabled={savingStatus}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={confirmStatusChange} disabled={savingStatus}>
+              {savingStatus ? 'Guardando…' : 'Confirmar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>

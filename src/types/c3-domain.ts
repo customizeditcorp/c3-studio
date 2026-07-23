@@ -1,9 +1,17 @@
+// F-088 — `client_status` (Postgres enum) es la única fuente de verdad del set de
+// estados del cliente; este union se alinea EXACTAMENTE al enum (R-01), sin divergencia.
+// `paused` reconcilia el drift TS↔DB (R-03, DT-05). `delivered`/`maintenance` son los
+// estados post-venta agregados por DDL aditivo (R-02, DT-01). `paused`/`churned` son
+// estados no-lineales (fuera de la timeline lineal: badge, ver `STATUS_STEPS`).
 export type ClientStatus =
   | 'lead'
   | 'diagnosed'
   | 'negotiating'
   | 'onboarding'
   | 'active'
+  | 'paused'
+  | 'delivered'
+  | 'maintenance'
   | 'churned';
 
 export type RecordStatus =
