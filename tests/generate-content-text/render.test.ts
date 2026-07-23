@@ -110,7 +110,11 @@ test('el call-site handleGenerateDescription usa gbpDescriptionFromResult', () =
   );
 });
 
-test('el preview público pasa content.description, no el objeto content completo', () => {
+// F-089 R-07 — el preview ya NO deriva la descripción de generated_outputs (read muerto
+// eliminado); la descripción viene sólo de gbp_profiles.description, gateada por
+// content_status='approved'. La intención F-082 (no filtrar el objeto content crudo al
+// preview) queda garantizada a fortiori: no se pasa ningún generatedDescription.
+test('el preview público no pasa el objeto content crudo (F-082) y ya no lee generated_outputs (F-089 R-07)', () => {
   const src = readFileSync(
     fileURLToPath(
       new URL('../../src/app/preview/[token]/page.tsx', import.meta.url)
@@ -121,5 +125,12 @@ test('el preview público pasa content.description, no el objeto content complet
     !src.includes('generatedDescription={generatedOutputs?.content || null}'),
     'ya no pasa el objeto content crudo'
   );
-  assert.ok(src.includes('c?.description'), 'extrae description del content');
+  assert.ok(
+    !/from\(['"]generated_outputs['"]\)/.test(src),
+    'F-089 R-07: el preview ya no consulta generated_outputs'
+  );
+  assert.ok(
+    !src.includes('generatedDescription'),
+    'F-089 R-07: ya no se pasa el prop generatedDescription'
+  );
 });

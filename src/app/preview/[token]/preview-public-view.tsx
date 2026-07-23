@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { useState } from 'react';
 import { toast } from 'sonner';
+// F-089 R-08/R-09 — el preview muestra la descripción SÓLO si content_status='approved'.
+import { resolveApprovedGbpDescription } from '@/lib/gbp-slice/content-status';
 
 type Props = {
   preview: {
@@ -37,6 +39,8 @@ type Props = {
     business_name?: string;
     primary_category?: string;
     description?: string;
+    // F-089 — eje de aprobación de contenido (ortogonal a verification_status F-087).
+    content_status?: string | null;
     phone?: string;
     website_url?: string;
     address?: string;
@@ -51,7 +55,6 @@ type Props = {
   }[];
   isExpired: boolean;
   token: string;
-  generatedDescription?: string | null;
   latestOffer?: {
     id: string;
     content: string;
@@ -66,7 +69,6 @@ export default function PreviewPublicView({
   photos,
   isExpired,
   token,
-  generatedDescription,
   latestOffer
 }: Props) {
   const [feedback, setFeedback] = useState('');
@@ -77,8 +79,9 @@ export default function PreviewPublicView({
   const businessName =
     gbpProfile?.business_name || client?.business_name || 'Negocio';
 
-  // Use generated description if GBP profile has no description
-  const displayDescription = gbpProfile?.description || generatedDescription;
+  // F-089 R-08/R-09 — la descripción se muestra SÓLO si content_status='approved'
+  // (la aprobación controla lo que ve/entrega el preview público); si no, se omite.
+  const displayDescription = resolveApprovedGbpDescription(gbpProfile);
 
   // Parse offer data if available
   let offerData: { big_promise?: string; guarantee?: string } | null = null;
