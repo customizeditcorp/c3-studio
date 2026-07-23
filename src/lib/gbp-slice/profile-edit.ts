@@ -100,6 +100,69 @@ export function guardGbpDescription(input: string): DescriptionGuardResult {
   return { ok: true, value };
 }
 
+/* ------------------------------------------------------------------------- *
+ * F-087 — Guards de identidad del activo GBP (puros, framework-free). Mismo
+ * contrato `{ valid, message }` que `validateAddressZip`. Un valor VACÍO es
+ * válido (los campos de identidad son opcionales, R-03). NUNCA capturan ni
+ * validan secretos (R-02): sólo forma de email / URL de referencia.
+ * ------------------------------------------------------------------------- */
+
+/** Resultado de validar un campo de identidad del activo. */
+export interface IdentityFieldValidation {
+  valid: boolean;
+  message?: string;
+}
+
+/**
+ * R-03 — Valida la forma del `operational_email` (Gmail operativo de referencia).
+ * Vacío/whitespace → válido (opcional). No vacío → debe tener forma de email
+ * (`local@dominio.tld`). Es metadata de referencia, NO un secreto (R-02).
+ */
+export function validateOperationalEmail(
+  value: string
+): IdentityFieldValidation {
+  const trimmed = (value ?? '').trim();
+  if (!trimmed) return { valid: true }; // opcional
+  // Forma de email conservadora: sin espacios, un `@`, dominio con TLD.
+  const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+  if (!ok) {
+    return {
+      valid: false,
+      message:
+        `Email inválido: "${trimmed}". Usá un email con forma válida (ej. negocio@gmail.com) ` +
+        'o dejá el campo vacío.'
+    };
+  }
+  return { valid: true };
+}
+
+/**
+ * R-03 — Valida la forma del `gbp_url` (enlace al listing en Maps/g.co). Vacío →
+ * válido (opcional). No vacío → debe ser una URL `http(s)://` bien formada.
+ */
+export function validateGbpUrl(value: string): IdentityFieldValidation {
+  const trimmed = (value ?? '').trim();
+  if (!trimmed) return { valid: true }; // opcional
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return {
+      valid: false,
+      message:
+        `URL inválida: "${trimmed}". Debe empezar con http:// o https:// ` +
+        '(ej. https://g.co/kgs/xxxx) o dejá el campo vacío.'
+    };
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return {
+      valid: false,
+      message: `URL inválida: "${trimmed}". El protocolo debe ser http:// o https://.`
+    };
+  }
+  return { valid: true };
+}
+
 /** R-09 — `true` si `zip` tiene formato US válido: 5 dígitos, opcional `+4`. */
 export function isValidUsZip(zip: string): boolean {
   if (typeof zip !== 'string') return false;

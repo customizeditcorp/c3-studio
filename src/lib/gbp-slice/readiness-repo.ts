@@ -123,13 +123,28 @@ export function mapDuplicateStatus(
  * draft row (kills the R-12 false positive). `verified` → true; explicit `not_found`/
  * `does_not_exist` → false (→ `gbp_missing`); `pending`/null/unknown → null (→ `unknown`
  * → `datos_insuficientes`). Phase E (E2) replaces this with GBP-API truth.
+ *
+ * F-087 (R-08) — ADDITIVE extension of the lifecycle: `created` (operator created the
+ * listing on Google and atesta) and `live` → true. `gbp_exists` asks about EXISTENCE,
+ * not verification, so a real listing is not sub-reported. Every pre-existing output
+ * (`verified`/`claimed`/`confirmed`→true, `not_found`/`does_not_exist`/`missing`→false,
+ * `pending`/null/unknown→null) stays BYTE-IDENTICAL → zero regression of F-083 R-13.
  */
 export function mapVerificationStatus(
   status: string | null | undefined
 ): boolean | null {
   if (status === null || status === undefined) return null;
   const s = status.toLowerCase();
-  if (s === 'verified' || s === 'claimed' || s === 'confirmed') return true;
+  // F-087 (R-08): `created`/`live` join the existing true-set additively.
+  if (
+    s === 'verified' ||
+    s === 'claimed' ||
+    s === 'confirmed' ||
+    s === 'created' ||
+    s === 'live'
+  ) {
+    return true;
+  }
   if (s === 'not_found' || s === 'does_not_exist' || s === 'missing') {
     return false;
   }
