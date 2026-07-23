@@ -117,6 +117,10 @@ export interface Preview {
   created_at: string;
 }
 
+/** GBP create-vs-existing axis (`gbp_mode` enum, F-083 R-01). Applied by the gated
+ * migration `20260722_f083_gbp_mode.sql`; default `existing` preserves AGS/maintenance. */
+export type GbpMode = 'create' | 'existing';
+
 export interface GBPProfile {
   id: string;
   client_id: string;
@@ -129,6 +133,12 @@ export interface GBPProfile {
   attributes: string[];
   hours: Record<string, unknown>;
   service_area: Record<string, unknown> | null;
+  // F-083 (R-01): explicit create-vs-existing axis; default `existing` (R-02).
+  gbp_mode: GbpMode;
+  // Verification lifecycle (recon §2.6). Pre-existing column, default `pending`;
+  // F-083 (R-13/R-14) gives it use: `gbp_exists` derives from it and onboarding can
+  // attest `verified`. Phase E (E2) replaces the attestation with GBP-API truth.
+  verification_status: string | null;
   created_at: string;
 }
 
@@ -251,6 +261,10 @@ export interface ReadinessAssessment {
   snap_nap_consistent: boolean | null;
   snap_gbp_exists: boolean | null;
   snap_gbp_duplicate: boolean | null;
+  // F-083 (R-15): auto-descriptive snapshot of the create-vs-existing mode used, so
+  // each historical verdict records whether `elegible` meant "clear to create" or
+  // "existing GBP healthy". Nullable (legacy rows predate the column).
+  snap_gbp_mode: GbpMode | null;
   rationale: string | null;
   assessed_by: string | null;
   assessed_at: string;

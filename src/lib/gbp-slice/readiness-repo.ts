@@ -23,7 +23,8 @@ import type {
   ReadinessBlocker,
   EligibilityVerdict,
   SosStatus,
-  NapRisk
+  NapRisk,
+  GbpMode
 } from '../../types/c3-domain.ts';
 
 // --- Evidence row shapes (loose; only the fields the engine consumes) ---------
@@ -47,6 +48,10 @@ export interface GbpProfileEvidence {
   id: string;
   nap_consistent?: boolean | null;
   duplicate_check_status?: string | null;
+  // F-083: create-vs-existing axis (R-02 default `existing`) + real verification
+  // source for `gbp_exists` (R-13, replaces the `gbpProfile ? true : null` false-positive).
+  gbp_mode?: GbpMode | null;
+  verification_status?: string | null;
 }
 
 export interface ReadinessEvidence {
@@ -71,6 +76,7 @@ export interface ReadinessAssessmentInsert {
   snap_nap_consistent: boolean | null;
   snap_gbp_exists: boolean | null;
   snap_gbp_duplicate: boolean | null;
+  snap_gbp_mode: GbpMode | null; // F-083 (R-15)
   rationale: string | null;
   assessed_by: string | null;
 }
@@ -112,8 +118,28 @@ export function mapDuplicateStatus(
 }
 
 /**
+ * Maps `gbp_profiles.verification_status` (text) to the `gbp_exists` boolean signal
+ * (F-083 R-13). HONEST degradation: never assumes `true` from the mere existence of a
+ * draft row (kills the R-12 false positive). `verified` → true; explicit `not_found`/
+ * `does_not_exist` → false (→ `gbp_missing`); `pending`/null/unknown → null (→ `unknown`
+ * → `datos_insuficientes`). Phase E (E2) replaces this with GBP-API truth.
+ */
+export function mapVerificationStatus(
+  status: string | null | undefined
+): boolean | null {
+  if (status === null || status === undefined) return null;
+  const s = status.toLowerCase();
+  if (s === 'verified' || s === 'claimed' || s === 'confirmed') return true;
+  if (s === 'not_found' || s === 'does_not_exist' || s === 'missing') {
+    return false;
+  }
+  return null; // 'pending' / unknown → not yet determined (never true by default)
+}
+
+/**
  * PURE mapping from fetched evidence rows to the engine inputs (design §3). No I/O.
- * `gbp_exists` derives from the presence of a `gbp_profiles` row (R-08).
+ * F-083 (R-12/R-13): `gbp_exists` derives from `verification_status`, NOT from the mere
+ * presence of a draft `gbp_profiles` row. `gbp_mode` defaults to `existing` (R-02).
  */
 export function buildReadinessInputs(evidence: ReadinessEvidence): {
   legal: ReadinessLegalInput;
@@ -133,8 +159,11 @@ export function buildReadinessInputs(evidence: ReadinessEvidence): {
   const presence: ReadinessPresenceInput = {
     nap_risk: napCheck?.risk_level ?? null,
     nap_consistent: gbpProfile?.nap_consistent ?? null,
-    gbp_exists: gbpProfile ? true : null,
-    gbp_duplicate: mapDuplicateStatus(gbpProfile?.duplicate_check_status)
+    // F-083 (R-12/R-13): honest source, no false positive from the draft row.
+    gbp_exists: mapVerificationStatus(gbpProfile?.verification_status),
+    gbp_duplicate: mapDuplicateStatus(gbpProfile?.duplicate_check_status),
+    // F-083 (R-02): default `existing` when the axis was never captured (legacy rows).
+    gbp_mode: gbpProfile?.gbp_mode ?? 'existing'
   };
 
   return { legal, presence };
@@ -181,6 +210,7 @@ export async function assessReadiness(
     snap_nap_consistent: result.snapshot.nap_consistent,
     snap_gbp_exists: result.snapshot.gbp_exists,
     snap_gbp_duplicate: result.snapshot.gbp_duplicate,
+    snap_gbp_mode: result.snapshot.gbp_mode, // F-083 (R-15)
     rationale: result.rationale,
     assessed_by: args.assessedBy ?? null
   };
@@ -238,7 +268,9 @@ export function createSupabaseReadinessStore(
     async fetchGbpProfile(clientId, ref) {
       let query = supabase
         .from('gbp_profiles')
-        .select('id, nap_consistent, duplicate_check_status')
+        .select(
+          'id, nap_consistent, duplicate_check_status, gbp_mode, verification_status'
+        )
         .eq('client_id', clientId);
       if (ref.gbpProfileId) query = query.eq('id', ref.gbpProfileId);
       const { data } = await query

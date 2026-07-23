@@ -27,8 +27,12 @@ export const NAP_CHECKLIST: ReadonlyArray<{
   },
   {
     id: 'cslb_name_match',
+    // F-083 (R-05): reworded so it is answerable independently of GBP existence —
+    // it is a LEGAL signal (name coincidence with the official record), applicable
+    // in both create and existing modes. Was "…coincide con el GBP".
     label: 'Nombre en CSLB coincide',
-    description: 'El nombre registrado en CSLB coincide con el GBP'
+    description:
+      'El nombre registrado en CSLB coincide con el nombre legal del negocio'
   },
   {
     id: 'address_consistent',

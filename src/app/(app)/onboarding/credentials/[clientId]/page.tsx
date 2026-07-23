@@ -33,6 +33,12 @@ import {
   type CredentialsReadClient,
   type CredentialsWriteClient
 } from '@/lib/onboarding/credentials';
+import {
+  isPresenceItemNA,
+  loadGbpPresence,
+  type GbpMode,
+  type GbpPresenceReadClient
+} from '@/lib/onboarding/gbp-mode';
 
 export default function CredentialsPage() {
   const { clientId } = useParams<{ clientId: string }>();
@@ -55,6 +61,9 @@ export default function CredentialsPage() {
   const [legalNameVerified, setLegalNameVerified] = useState(false);
   const [credentialId, setCredentialId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // F-083 (R-04): create-vs-existing axis (captured on the NAP screen, home =
+  // `gbp_profiles`); read-only here to render `gbp_access` as N/A in create mode.
+  const [gbpMode, setGbpMode] = useState<GbpMode>('existing');
 
   useEffect(() => {
     if (!userLoading && tenantId && clientId) {
@@ -94,14 +103,27 @@ export default function CredentialsPage() {
       setCslbActive(parsed.cslbActive);
       setLegalNameVerified(parsed.legalNameVerified);
     }
+
+    // F-083 (R-04): load the create-vs-existing axis from `gbp_profiles`.
+    const presence = await loadGbpPresence(
+      supabase as unknown as GbpPresenceReadClient,
+      clientId
+    );
+    setGbpMode(presence.gbpMode);
+
     setLoading(false);
   };
 
   const completedCount = CHECKLIST_ITEMS.filter(
     (item) => checklist[item.id]
   ).length;
+  // F-083 (R-04): a required item that is N/A in create mode is NOT counted as missing
+  // (not required, not penalizing).
   const missingRequired = CHECKLIST_ITEMS.filter(
-    (item) => item.required && !checklist[item.id]
+    (item) =>
+      item.required &&
+      !checklist[item.id] &&
+      !isPresenceItemNA(item.id, gbpMode)
   );
 
   const handleToggle = async (itemId: string, checked: boolean) => {
@@ -356,39 +378,53 @@ export default function CredentialsPage() {
           </CardHeader>
           <CardContent>
             <div className='space-y-3'>
-              {CHECKLIST_ITEMS.map((item) => (
-                <div
-                  key={item.id}
-                  className='flex items-start gap-3 rounded-lg border p-3'
-                >
-                  <Checkbox
-                    id={item.id}
-                    checked={!!checklist[item.id]}
-                    onCheckedChange={(checked) =>
-                      handleToggle(item.id, !!checked)
-                    }
-                    className='mt-0.5'
-                  />
-                  <div className='flex-1'>
-                    <div className='flex items-center gap-2'>
-                      <Label
-                        htmlFor={item.id}
-                        className='cursor-pointer font-medium'
-                      >
-                        {item.label}
-                      </Label>
-                      {item.required && (
-                        <Badge variant='destructive' className='text-xs'>
-                          Requerido
-                        </Badge>
-                      )}
+              {CHECKLIST_ITEMS.map((item) => {
+                // F-083 (R-04): presence-dependent items (gbp_access) are N/A in create
+                // mode — disabled, forced unchecked, not required, not penalizing.
+                const na = isPresenceItemNA(item.id, gbpMode);
+                return (
+                  <div
+                    key={item.id}
+                    className={`flex items-start gap-3 rounded-lg border p-3 ${
+                      na ? 'opacity-60' : ''
+                    }`}
+                  >
+                    <Checkbox
+                      id={item.id}
+                      checked={na ? false : !!checklist[item.id]}
+                      disabled={na}
+                      onCheckedChange={(checked) =>
+                        handleToggle(item.id, !!checked)
+                      }
+                      className='mt-0.5'
+                    />
+                    <div className='flex-1'>
+                      <div className='flex items-center gap-2'>
+                        <Label
+                          htmlFor={item.id}
+                          className='cursor-pointer font-medium'
+                        >
+                          {item.label}
+                        </Label>
+                        {na ? (
+                          <Badge variant='secondary' className='text-xs'>
+                            N/A (modo crear)
+                          </Badge>
+                        ) : (
+                          item.required && (
+                            <Badge variant='destructive' className='text-xs'>
+                              Requerido
+                            </Badge>
+                          )
+                        )}
+                      </div>
+                      <p className='text-muted-foreground mt-0.5 text-xs'>
+                        {item.description}
+                      </p>
                     </div>
-                    <p className='text-muted-foreground mt-0.5 text-xs'>
-                      {item.description}
-                    </p>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </CardContent>
         </Card>
