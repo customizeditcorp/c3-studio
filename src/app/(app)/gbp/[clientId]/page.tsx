@@ -39,12 +39,23 @@ import {
   type PreconditionState
 } from '@/lib/gbp-trigger-state';
 // F-084 — guards de write-path del draft GBP (sanitizer + zip + límite corto).
+// F-087 — guards de identidad del activo (email/URL).
 import {
   guardGbpDescription,
   clampShortDescription,
   validateAddressZip,
+  validateOperationalEmail,
+  validateGbpUrl,
   SHORT_DESCRIPTION_MAX
 } from '@/lib/gbp-slice/profile-edit';
+// F-087 — seam del activo GBP (identidad + lifecycle de verificación).
+import {
+  buildGbpAssetPayload,
+  persistGbpAsset,
+  VERIFICATION_STATUS_OPTIONS,
+  type VerificationLifecycleStatus,
+  type GbpAssetWriteClient
+} from '@/lib/gbp-slice/gbp-asset';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -128,6 +139,18 @@ export default function GBPPage() {
   const [serviceAreaNotes, setServiceAreaNotes] = useState('');
   const [serviceAreaCities, setServiceAreaCities] = useState('');
 
+  // F-087 — Activo GBP: identidad (metadata, NO secretos) + lifecycle de verificación.
+  const [operationalEmail, setOperationalEmail] = useState('');
+  const [gbpUrl, setGbpUrl] = useState('');
+  const [placeId, setPlaceId] = useState('');
+  const [verificationStatus, setVerificationStatus] =
+    useState<VerificationLifecycleStatus>('pending');
+  const [verificationMethod, setVerificationMethod] = useState('');
+  const [verificationNotes, setVerificationNotes] = useState('');
+  const [verifiedAt, setVerifiedAt] = useState<string | null>(null);
+  const [gbpMode, setGbpMode] = useState<string | null>(null);
+  const [savingAsset, setSavingAsset] = useState(false);
+
   // Post form state
   const [newPostContent, setNewPostContent] = useState('');
   const [newPostCta, setNewPostCta] = useState('call');
@@ -199,6 +222,26 @@ export default function GBPPage() {
       const sa = parseServiceArea(gbpData.service_area);
       setServiceAreaNotes(sa.notes);
       setServiceAreaCities(sa.cities);
+
+      // F-087 — hidratar identidad + lifecycle desde la fila (defaults seguros; R-06:
+      // `verification_status` ausente/legacy → 'pending'). Las columnas nuevas quedan
+      // disponibles tras el DDL gateado (aditivo); antes del DDL son undefined → default.
+      setOperationalEmail(gbpData.operational_email || '');
+      setGbpUrl(gbpData.gbp_url || '');
+      setPlaceId(gbpData.place_id || '');
+      const rawStatus = gbpData.verification_status;
+      setVerificationStatus(
+        rawStatus === 'created' ||
+          rawStatus === 'verified' ||
+          rawStatus === 'not_found' ||
+          rawStatus === 'pending'
+          ? rawStatus
+          : 'pending'
+      );
+      setVerificationMethod(gbpData.verification_method || '');
+      setVerificationNotes(gbpData.verification_notes || '');
+      setVerifiedAt(gbpData.verified_at || null);
+      setGbpMode(gbpData.gbp_mode ?? null);
     }
 
     const { data: postsData } = await supabase
@@ -317,6 +360,66 @@ export default function GBPPage() {
       toast.error('Error al guardar el perfil GBP');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // F-087 (R-11) — Guardar identidad + lifecycle del activo con error-surfacing
+  // (patrón F-080/F-084: validar → persistir → leer error → toast; nunca éxito falso).
+  const handleSaveAsset = async () => {
+    if (!tenantId || !user) return;
+
+    // R-03 — validar identidad ANTES de persistir; inválido → no persiste.
+    const emailCheck = validateOperationalEmail(operationalEmail);
+    if (!emailCheck.valid) {
+      toast.error(emailCheck.message ?? 'Email inválido');
+      return;
+    }
+    const urlCheck = validateGbpUrl(gbpUrl);
+    if (!urlCheck.valid) {
+      toast.error(urlCheck.message ?? 'URL inválida');
+      return;
+    }
+
+    // Sin fila de perfil no hay home donde escribir (persistGbpAsset sería no-op).
+    if (!gbpProfileId) {
+      toast.error(
+        'Guardá primero el perfil GBP (pestaña "Perfil GBP") para crear el activo.'
+      );
+      return;
+    }
+
+    setSavingAsset(true);
+    // R-01/R-04/R-05/R-10 — payload sin `gbp_mode` (independencia de dimensiones).
+    const payload = buildGbpAssetPayload({
+      identity: { operationalEmail, gbpUrl, placeId },
+      status: verificationStatus,
+      method: verificationMethod,
+      notes: verificationNotes
+    });
+
+    try {
+      // R-11 — persistGbpAsset lee `error` y lanza en fallo (no éxito falso).
+      await persistGbpAsset({
+        supabase: supabase as unknown as GbpAssetWriteClient,
+        gbpProfileId,
+        payload
+      });
+      setVerifiedAt(payload.verified_at);
+      await logActivity({
+        tenantId,
+        userId: user.id,
+        action: 'gbp_asset_updated',
+        entityType: 'gbp_profile',
+        entityId: gbpProfileId,
+        clientId,
+        metadata: { verification_status: payload.verification_status }
+      });
+      toast.success('Activo GBP guardado');
+    } catch (error) {
+      console.error('Error saving GBP asset:', error);
+      toast.error('Error al guardar el activo GBP');
+    } finally {
+      setSavingAsset(false);
     }
   };
 
@@ -491,6 +594,7 @@ export default function GBPPage() {
         <Tabs defaultValue='profile'>
           <TabsList>
             <TabsTrigger value='profile'>Perfil GBP</TabsTrigger>
+            <TabsTrigger value='asset'>Activo &amp; Verificación</TabsTrigger>
             <TabsTrigger value='posts'>
               Publicaciones ({posts.length})
             </TabsTrigger>
@@ -764,6 +868,117 @@ export default function GBPPage() {
 
             <Button onClick={handleSaveProfile} disabled={saving}>
               {saving ? 'Guardando...' : 'Guardar Perfil GBP'}
+            </Button>
+          </TabsContent>
+
+          {/* F-087 — Activo & Verificación: identidad del activo (metadata, NO secretos)
+              + lifecycle de verificación operable (R-01/R-04/R-05/R-09/R-11). */}
+          <TabsContent value='asset' className='mt-4 max-w-3xl space-y-4'>
+            <Card>
+              <CardHeader>
+                <CardTitle className='text-base'>
+                  Identidad del activo
+                </CardTitle>
+              </CardHeader>
+              <CardContent className='grid gap-4 sm:grid-cols-2'>
+                <div className='space-y-2 sm:col-span-2'>
+                  <Label>Gmail operativo (referencia)</Label>
+                  <Input
+                    value={operationalEmail}
+                    onChange={(e) => setOperationalEmail(e.target.value)}
+                    placeholder='negocio@gmail.com'
+                  />
+                  <p className='text-muted-foreground text-xs'>
+                    Solo referencia. Nunca guardes contraseñas ni códigos de
+                    recuperación acá (viven en Drive).
+                  </p>
+                </div>
+                <div className='space-y-2 sm:col-span-2'>
+                  <Label>URL del GBP (Maps / g.co)</Label>
+                  <Input
+                    value={gbpUrl}
+                    onChange={(e) => setGbpUrl(e.target.value)}
+                    placeholder='https://g.co/kgs/xxxx'
+                  />
+                </div>
+                <div className='space-y-2 sm:col-span-2'>
+                  <Label>Place ID (opcional)</Label>
+                  <Input
+                    value={placeId}
+                    onChange={(e) => setPlaceId(e.target.value)}
+                    placeholder='ChIJ...'
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className='text-base'>
+                  Estado de verificación
+                </CardTitle>
+              </CardHeader>
+              <CardContent className='space-y-4'>
+                {/* R-09 — origen (gbp_mode) distinguido del estado (lifecycle). */}
+                {gbpMode && (
+                  <p className='text-muted-foreground text-xs'>
+                    Origen:{' '}
+                    <span className='font-medium'>
+                      {gbpMode === 'create'
+                        ? 'Creado desde cero'
+                        : 'Perfil preexistente'}
+                    </span>
+                  </p>
+                )}
+                <div className='space-y-2'>
+                  <Label>Estado del lifecycle</Label>
+                  <Select
+                    value={verificationStatus}
+                    onValueChange={(v) =>
+                      setVerificationStatus(v as VerificationLifecycleStatus)
+                    }
+                  >
+                    <SelectTrigger className='w-full sm:w-96'>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {VERIFICATION_STATUS_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className='grid gap-4 sm:grid-cols-2'>
+                  <div className='space-y-2'>
+                    <Label>Método de verificación</Label>
+                    <Input
+                      value={verificationMethod}
+                      onChange={(e) => setVerificationMethod(e.target.value)}
+                      placeholder='postal / teléfono / email / manual'
+                    />
+                  </div>
+                  <div className='space-y-2'>
+                    <Label>Nota de prueba</Label>
+                    <Input
+                      value={verificationNotes}
+                      onChange={(e) => setVerificationNotes(e.target.value)}
+                      placeholder='Ej. código postal recibido 2026-07-23'
+                    />
+                  </div>
+                </div>
+                {verifiedAt && (
+                  <p className='text-muted-foreground text-xs'>
+                    Fecha de verificación:{' '}
+                    {new Date(verifiedAt).toLocaleDateString('es-MX')}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Button onClick={handleSaveAsset} disabled={savingAsset}>
+              {savingAsset ? 'Guardando...' : 'Guardar activo GBP'}
             </Button>
           </TabsContent>
 

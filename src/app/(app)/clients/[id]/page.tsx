@@ -38,6 +38,19 @@ const STATUS_STEPS = [
   'active'
 ];
 
+// F-087 (R-09) — etiquetas legibles del lifecycle + origen del activo GBP (read-only).
+const GBP_LIFECYCLE_LABELS: Record<string, string> = {
+  pending: 'Pendiente (aún no creado/verificado)',
+  created: 'Creado en Google (pendiente de verificar)',
+  verified: 'Verificado',
+  not_found: 'No existe'
+};
+
+const GBP_MODE_LABELS: Record<string, string> = {
+  create: 'Creado desde cero',
+  existing: 'Perfil preexistente'
+};
+
 type Client = {
   id: string;
   business_name: string;
@@ -62,6 +75,15 @@ export default function ClientDetailPage() {
   const [client, setClient] = useState<Client | null>(null);
   const [loading, setLoading] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
+
+  // F-087 (R-09) — reflejo READ-ONLY del estado del activo GBP en la ficha: origen
+  // (`gbp_mode`) DISTINGUIDO del estado del lifecycle (`verification_status`). La ficha
+  // consume el estado; NO lo edita (el editor vive en /gbp/[clientId], DT-02).
+  const [gbpLifecycle, setGbpLifecycle] = useState<{
+    gbpMode: string | null;
+    verificationStatus: string | null;
+    verifiedAt: string | null;
+  } | null>(null);
 
   type ProgressState = {
     hasDiagnostic: boolean;
@@ -152,7 +174,7 @@ export default function ClientDetailPage() {
         .maybeSingle(),
       supabase
         .from('gbp_profiles')
-        .select('description')
+        .select('description, gbp_mode, verification_status, verified_at')
         .eq('client_id', id)
         .limit(1)
         .maybeSingle(),
@@ -182,6 +204,17 @@ export default function ClientDetailPage() {
       hasApprovedPhotos: !!photosData,
       previewSent: !!previewData
     });
+
+    // F-087 (R-09) — reflejar el estado del activo GBP (origen + lifecycle) read-only.
+    setGbpLifecycle(
+      gbpData
+        ? {
+            gbpMode: gbpData.gbp_mode ?? null,
+            verificationStatus: gbpData.verification_status ?? null,
+            verifiedAt: gbpData.verified_at ?? null
+          }
+        : null
+    );
 
     setLoading(false);
   };
@@ -523,10 +556,38 @@ export default function ClientDetailPage() {
 
           <TabsContent value='gbp' className='mt-4'>
             <Card>
-              <CardContent className='py-8 text-center'>
-                <p className='text-muted-foreground mb-4'>
+              <CardContent className='space-y-4 py-8 text-center'>
+                <p className='text-muted-foreground'>
                   Perfil de Google Business
                 </p>
+                {/* F-087 (R-09) — reflejo READ-ONLY del activo: origen (gbp_mode)
+                    DISTINGUIDO del estado (lifecycle). Sólo lectura; la edición vive
+                    en /gbp/[clientId]. */}
+                <div className='mx-auto flex max-w-md flex-wrap items-center justify-center gap-2'>
+                  <Badge variant='outline'>
+                    Origen:{' '}
+                    {gbpLifecycle?.gbpMode
+                      ? (GBP_MODE_LABELS[gbpLifecycle.gbpMode] ??
+                        gbpLifecycle.gbpMode)
+                      : 'Sin registrar'}
+                  </Badge>
+                  <Badge variant='outline'>
+                    Estado:{' '}
+                    {gbpLifecycle?.verificationStatus
+                      ? (GBP_LIFECYCLE_LABELS[
+                          gbpLifecycle.verificationStatus
+                        ] ?? gbpLifecycle.verificationStatus)
+                      : 'Pendiente (aún no creado/verificado)'}
+                  </Badge>
+                  {gbpLifecycle?.verifiedAt && (
+                    <Badge variant='outline'>
+                      Verificado:{' '}
+                      {new Date(gbpLifecycle.verifiedAt).toLocaleDateString(
+                        'es-MX'
+                      )}
+                    </Badge>
+                  )}
+                </div>
                 <Button asChild>
                   <Link href={`/gbp/${client.id}`}>Gestionar GBP</Link>
                 </Button>

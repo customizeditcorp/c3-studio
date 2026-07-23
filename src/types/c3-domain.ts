@@ -136,9 +136,27 @@ export interface GBPProfile {
   // F-083 (R-01): explicit create-vs-existing axis; default `existing` (R-02).
   gbp_mode: GbpMode;
   // Verification lifecycle (recon §2.6). Pre-existing column, default `pending`;
-  // F-083 (R-13/R-14) gives it use: `gbp_exists` derives from it and onboarding can
-  // attest `verified`. Phase E (E2) replaces the attestation with GBP-API truth.
+  // F-083 (R-13/R-14) gave it use: `gbp_exists` derives from it and onboarding can
+  // attest `verified`. F-087 (R-04) promotes it from binary flag to a controlled
+  // lifecycle. Valid states (app-layer, `VERIFICATION_STATUS_OPTIONS`, NOT a Postgres
+  // enum — column stays `text`): `pending` (default) → `created` (operator created the
+  // listing on Google, atesta) → `verified` (verified by postal/phone), plus the
+  // explicit negative `not_found` (existing-mode: searched, does not exist). Phase E
+  // (E2) replaces the attestation with GBP-API truth.
   verification_status: string | null;
+  // F-087 (R-05) — method used for the lifecycle transition (postal/phone/email/manual).
+  verification_method: string | null;
+  // F-087 (R-05) — proof note for the lifecycle transition (reuses the existing column).
+  verification_notes: string | null;
+  // F-087 (R-01) — asset IDENTITY as additive metadata (NO secrets, R-02). Applied by the
+  // gated migration `20260723_f087_gbp_asset_lifecycle.sql`. `operational_email` is the
+  // reference Gmail (metadata, not a credential); `gbp_url` is the Maps/g.co listing link
+  // (distinct from `website_url`); `place_id` is the Google Place ID (optional).
+  operational_email: string | null;
+  gbp_url: string | null;
+  place_id: string | null;
+  // F-087 (R-05) — timestamp of the transition to `created`/`verified`.
+  verified_at: string | null;
   created_at: string;
 }
 
