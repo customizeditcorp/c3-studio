@@ -56,6 +56,14 @@ import {
   type VerificationLifecycleStatus,
   type GbpAssetWriteClient
 } from '@/lib/gbp-slice/gbp-asset';
+// F-089 — seam de aprobación de contenido GBP (content_status en gbp_profiles).
+import {
+  approveGbpContent,
+  withDraftContentStatus,
+  GBP_CONTENT_STATUS_APPROVED,
+  GBP_CONTENT_STATUS_DRAFT,
+  type GbpContentApprovalClient
+} from '@/lib/gbp-slice/content-status';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -151,6 +159,14 @@ export default function GBPPage() {
   const [gbpMode, setGbpMode] = useState<string | null>(null);
   const [savingAsset, setSavingAsset] = useState(false);
 
+  // F-089 — Aprobación de contenido GBP (content_status en gbp_profiles, ortogonal a
+  // verification_status). Default 'draft' (R-02); sólo `handleApproveGbpContent` lo lleva
+  // a 'approved'; guardar/regenerar lo repone a 'draft' (R-06).
+  const [contentStatus, setContentStatus] = useState<string>(
+    GBP_CONTENT_STATUS_DRAFT
+  );
+  const [approvingContent, setApprovingContent] = useState(false);
+
   // Post form state
   const [newPostContent, setNewPostContent] = useState('');
   const [newPostCta, setNewPostCta] = useState('call');
@@ -242,6 +258,9 @@ export default function GBPPage() {
       setVerificationNotes(gbpData.verification_notes || '');
       setVerifiedAt(gbpData.verified_at || null);
       setGbpMode(gbpData.gbp_mode ?? null);
+      // F-089 R-02/R-05 — hidratar content_status (default 'draft' si ausente/legacy;
+      // la columna existe tras el DDL gateado — antes es undefined → default).
+      setContentStatus(gbpData.content_status || GBP_CONTENT_STATUS_DRAFT);
     }
 
     const { data: postsData } = await supabase
@@ -312,7 +331,10 @@ export default function GBPPage() {
 
     setSaving(true);
 
-    const data = {
+    // F-089 R-06 — guardar/editar la descripción repone content_status='draft': la
+    // edición invalida una aprobación previa (la aprobación siempre refleja el contenido
+    // actual). La única transición a 'approved' es handleApproveGbpContent (R-04).
+    const data = withDraftContentStatus({
       client_id: clientId,
       business_name: businessName,
       primary_category: primaryCategory,
@@ -330,7 +352,7 @@ export default function GBPPage() {
       // both sub-fields empty); never a flat string[], never blind String/JSON.stringify.
       service_area: serializeServiceArea(serviceAreaNotes, serviceAreaCities),
       updated_at: new Date().toISOString()
-    };
+    });
 
     try {
       if (gbpProfileId) {
@@ -343,6 +365,9 @@ export default function GBPPage() {
           .single();
         if (newProfile) setGbpProfileId(newProfile.id);
       }
+      // F-089 R-06 — reflejar en el estado local que el guardado repuso 'draft'
+      // (el botón de aprobar reaparece hasta la próxima aprobación).
+      setContentStatus(GBP_CONTENT_STATUS_DRAFT);
 
       await logActivity({
         tenantId,
@@ -360,6 +385,38 @@ export default function GBPPage() {
       toast.error('Error al guardar el perfil GBP');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // F-089 R-04 — Aprobar el contenido GBP: fija gbp_profiles.content_status='approved'
+  // + activity_log('gbp_content_approved') vía el seam `approveGbpContent` (mismo
+  // code-path que los tests, §6.1). Espeja handleApproveBrief. Sin fila de perfil no hay
+  // home donde escribir (guardá primero el perfil). content_status es ortogonal al
+  // verification_status del activo (F-087).
+  const handleApproveGbpContent = async () => {
+    if (!tenantId || !user) return;
+    if (!gbpProfileId) {
+      toast.error(
+        'Guardá primero el perfil GBP para poder aprobar su contenido.'
+      );
+      return;
+    }
+    setApprovingContent(true);
+    try {
+      await approveGbpContent({
+        supabase: supabase as unknown as GbpContentApprovalClient,
+        gbpProfileId,
+        clientId,
+        tenantId,
+        userId: user.id
+      });
+      setContentStatus(GBP_CONTENT_STATUS_APPROVED);
+      toast.success('Contenido GBP aprobado');
+    } catch (error) {
+      console.error('Error approving GBP content:', error);
+      toast.error('Error al aprobar el contenido GBP');
+    } finally {
+      setApprovingContent(false);
     }
   };
 
@@ -866,9 +923,26 @@ export default function GBPPage() {
               </CardContent>
             </Card>
 
-            <Button onClick={handleSaveProfile} disabled={saving}>
-              {saving ? 'Guardando...' : 'Guardar Perfil GBP'}
-            </Button>
+            {/* F-089 R-04/R-05 — Aprobar contenido GBP: fija content_status='approved'
+                (gatea el preview público). Visible sólo mientras NO está aprobado; una
+                vez aprobado se reemplaza por un badge (espeja aprobado/regenerar de
+                briefs, F-041 T-06). Guardar/regenerar repone 'draft' y reaparece. */}
+            <div className='flex items-center gap-3'>
+              <Button onClick={handleSaveProfile} disabled={saving}>
+                {saving ? 'Guardando...' : 'Guardar Perfil GBP'}
+              </Button>
+              {contentStatus === GBP_CONTENT_STATUS_APPROVED ? (
+                <Badge variant='secondary'>Contenido aprobado</Badge>
+              ) : (
+                <Button
+                  variant='outline'
+                  onClick={handleApproveGbpContent}
+                  disabled={approvingContent || !gbpProfileId}
+                >
+                  {approvingContent ? 'Aprobando...' : 'Aprobar contenido GBP'}
+                </Button>
+              )}
+            </div>
           </TabsContent>
 
           {/* F-087 — Activo & Verificación: identidad del activo (metadata, NO secretos)

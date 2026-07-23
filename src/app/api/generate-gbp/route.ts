@@ -38,6 +38,9 @@ import {
   ASSET_STATUS_ON_PREVIEW,
   SLICE_ASSET_TYPE
 } from '@/lib/gbp-slice';
+// F-089 R-06 — la regeneración repone `content_status='draft'`: el contenido nuevo
+// invalida cualquier aprobación previa (la aprobación siempre refleja el contenido actual).
+import { withDraftContentStatus } from '@/lib/gbp-slice/content-status';
 
 const AI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o';
 const GBP_GROUNDING_STEP = 'gbp_description'; // reuse the live grounded step (R-04)
@@ -275,9 +278,12 @@ export async function POST(request: NextRequest) {
     const { data: savedProfile, error: profileErr } = await supabase
       .from('gbp_profiles')
       .upsert(
-        { ...profileRow, updated_at: new Date().toISOString() },
+        withDraftContentStatus({
+          ...profileRow,
+          updated_at: new Date().toISOString()
+        }),
         { onConflict: 'client_id' }
-      ) // R-08 (CL-033): idempotent regeneration; UNIQUE(client_id) -> update the single row instead of colliding (Postgres 23505)
+      ) // R-08 (CL-033): idempotent regeneration; UNIQUE(client_id) -> update the single row instead of colliding (Postgres 23505). F-089 R-06: content_status -> 'draft'.
       .select()
       .single();
     if (profileErr) {

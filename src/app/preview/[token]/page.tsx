@@ -50,16 +50,10 @@ export default async function PreviewPage({
     .eq('approved', true)
     .limit(10);
 
-  // Fetch latest approved GBP description from generated_outputs
-  const { data: generatedOutputs } = await supabase
-    .from('generated_outputs')
-    .select('*')
-    .eq('client_id', preview.client_id)
-    .eq('output_type', 'gbp_description')
-    .eq('status', 'approved')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // F-089 R-07 — se eliminó el read doblemente muerto de `generated_outputs`
+  // (status='approved' que nadie seteaba). El preview deriva contenido Y aprobación
+  // de `gbp_profiles` (fetch arriba, incluye `content_status`); el gating vive en
+  // `preview-public-view.tsx` vía `resolveApprovedGbpDescription`.
 
   // Fetch latest approved offer (OFV)
   const { data: latestOffer } = await supabase
@@ -78,13 +72,6 @@ export default async function PreviewPage({
       photos={photos || []}
       isExpired={isExpired}
       token={token}
-      generatedDescription={(() => {
-        const c = generatedOutputs?.content as
-          | { description?: string; short_description?: string }
-          | null
-          | undefined;
-        return c?.description ?? c?.short_description ?? null;
-      })()}
       latestOffer={latestOffer || null}
     />
   );

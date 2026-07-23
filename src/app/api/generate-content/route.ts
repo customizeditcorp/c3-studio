@@ -25,6 +25,9 @@ import {
   buildLanguageDirective,
   normalizeContentLanguage
 } from '@/lib/content-language';
+// F-089 R-03 — el home de `gbp_description` es `gbp_profiles` (lo escribe `generate-gbp`);
+// este write-path NO debe duplicar esa fila en `generated_outputs`.
+import { shouldPersistGeneratedOutput } from '@/lib/gbp-slice/content-status';
 const AI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o';
 export async function POST(request: NextRequest) {
   try {
@@ -439,7 +442,14 @@ export async function POST(request: NextRequest) {
           );
         }
         savedRecord = data;
-      } else if (outputSteps.includes(step)) {
+      } else if (
+        outputSteps.includes(step) &&
+        shouldPersistGeneratedOutput(step)
+      ) {
+        // F-089 R-03 — `gbp_description` cae acá (outputSteps.includes) pero
+        // `shouldPersistGeneratedOutput` lo excluye: NO se crea la fila duplicada en
+        // `generated_outputs` (home = `gbp_profiles`, escrito por `generate-gbp`).
+        // `savedRecord` queda undefined → `saved: null` y sin activity_log de duplicado.
         const { data: lo } = await supabase
           .from('offers')
           .select('id')
