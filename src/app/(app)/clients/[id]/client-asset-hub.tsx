@@ -14,6 +14,11 @@ interface ClientAssetHubProps {
 
 const ASSET_TYPES: AssetType[] = ['gbp', 'website', 'seo', 'geo', 'social'];
 
+// Canales sin wiring todavía: nunca avanzan de estado. Se muestran como
+// 'Próximamente' en vez de arrastrar el badge de status crudo ('Pendiente'),
+// que haría pasar por trackeado-pero-estancado algo que aún no existe (F-094).
+const COMING_SOON_ASSET_TYPES: AssetType[] = ['seo', 'geo', 'social'];
+
 const ASSET_META: Record<AssetType, { label: string; description: string }> = {
   gbp: {
     label: 'Google Business Profile',
@@ -95,12 +100,10 @@ export function ClientAssetHub({ clientId, tenantId }: ClientAssetHubProps) {
         metadata: {}
       }));
 
-      await supabase
-        .from('client_assets')
-        .upsert(rows, {
-          onConflict: 'client_id,asset_type',
-          ignoreDuplicates: true
-        });
+      await supabase.from('client_assets').upsert(rows, {
+        onConflict: 'client_id,asset_type',
+        ignoreDuplicates: true
+      });
 
       const { data: seeded } = await supabase
         .from('client_assets')
@@ -165,28 +168,43 @@ export function ClientAssetHub({ clientId, tenantId }: ClientAssetHubProps) {
           const meta = ASSET_META[type];
           const status = asset?.status ?? 'locked';
           const statusMeta = STATUS_META[status];
+          const isComingSoon = COMING_SOON_ASSET_TYPES.includes(type);
 
           return (
             <Card
               key={type}
-              className={status === 'locked' ? 'opacity-60' : ''}
+              className={
+                status === 'locked' || isComingSoon ? 'opacity-60' : ''
+              }
             >
               <CardHeader className='pb-2'>
                 <div className='flex items-center justify-between'>
                   <CardTitle className='text-sm font-medium'>
                     {meta.label}
                   </CardTitle>
-                  <Badge variant={statusMeta.variant}>{statusMeta.label}</Badge>
+                  {isComingSoon ? (
+                    <Badge variant='secondary'>Próximamente</Badge>
+                  ) : (
+                    <Badge variant={statusMeta.variant}>
+                      {statusMeta.label}
+                    </Badge>
+                  )}
                 </div>
               </CardHeader>
               <CardContent>
                 <p className='text-muted-foreground text-xs'>
                   {meta.description}
                 </p>
-                {status === 'locked' && (
+                {isComingSoon ? (
                   <p className='text-muted-foreground mt-2 text-xs'>
-                    🔒 Requiere brandboard aprobado
+                    No disponible aún
                   </p>
+                ) : (
+                  status === 'locked' && (
+                    <p className='text-muted-foreground mt-2 text-xs'>
+                      🔒 Requiere brandboard aprobado
+                    </p>
+                  )
                 )}
               </CardContent>
             </Card>
