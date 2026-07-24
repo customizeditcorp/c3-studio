@@ -12,6 +12,7 @@ import { useUser } from '@/contexts/UserContext';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { logActivity } from '@/lib/activity';
 import { generateContent } from '@/lib/edge-functions';
+import { buildBriefWritePayload } from '@/lib/briefs/write-path';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
@@ -558,24 +559,59 @@ export default function BriefPage() {
   };
 
   const handleApproveBrief = async () => {
-    if (!briefRecord || !tenantId || !user) return;
+    // F-097 R-02/R-04 — ya no early-return por `!briefRecord`: si no hay fila,
+    // se CREA directamente `approved` (aprobar sin generar con AI).
+    if (!tenantId || !user) return;
     setApprovingBrief(true);
     try {
-      await supabase
-        .from('briefs')
-        .update({ status: 'approved', content: fieldsToContent(briefFields) })
-        .eq('id', briefRecord.id);
+      // F-097 R-10/R-11 — payload con la columna `raw_text` sincronizada.
+      const payload = buildBriefWritePayload(fieldsToContent(briefFields), {
+        status: 'approved'
+      });
+      let entityId: string | undefined = briefRecord?.id;
+      if (briefRecord) {
+        await supabase
+          .from('briefs')
+          .update({
+            status: 'approved',
+            content: payload.content,
+            raw_text: payload.raw_text
+          })
+          .eq('id', briefRecord.id);
+        setBriefRecord((prev) =>
+          prev ? { ...prev, status: 'approved' } : prev
+        );
+      } else {
+        // F-097 R-02 — insert-on-first-save (rama sin `briefRecord`).
+        const { data } = await supabase
+          .from('briefs')
+          .insert({
+            client_id: clientId,
+            prompt_version_id: null, // DT-01 — brief manual, sin prompt_version
+            content: payload.content,
+            raw_text: payload.raw_text,
+            status: payload.status,
+            version: payload.version
+          })
+          .select('id, content, status, created_at')
+          .single();
+        if (data) {
+          entityId = (data as ContentRecord).id;
+          setBriefRecord(data as ContentRecord); // subsecuentes = update (R-08)
+        }
+      }
       // F-084 R-07/R-08 — espejar city/state a `clients` en el mismo save.
       await mirrorCityStateToClient();
-      setBriefRecord((prev) => (prev ? { ...prev, status: 'approved' } : prev));
-      await logActivity({
-        tenantId,
-        userId: user.id,
-        action: 'brief_approved',
-        entityType: 'brief',
-        entityId: briefRecord.id,
-        clientId
-      });
+      if (entityId) {
+        await logActivity({
+          tenantId,
+          userId: user.id,
+          action: 'brief_approved',
+          entityType: 'brief',
+          entityId,
+          clientId
+        });
+      }
       toast.success('Brief aprobado');
     } catch {
       toast.error('Error al aprobar');
@@ -585,13 +621,36 @@ export default function BriefPage() {
   };
 
   const handleSaveDraft = async () => {
-    if (!briefRecord || !tenantId) return;
+    // F-097 R-01/R-04 — ya no early-return por `!briefRecord`: si no hay fila,
+    // se CREA (insert-on-first-save) para poder guardar sin generar con AI.
+    if (!tenantId) return;
     setSavingDraft(true);
     try {
-      await supabase
-        .from('briefs')
-        .update({ content: fieldsToContent(briefFields) })
-        .eq('id', briefRecord.id);
+      // F-097 R-10/R-11 — payload con la columna `raw_text` sincronizada.
+      const payload = buildBriefWritePayload(fieldsToContent(briefFields), {
+        status: 'draft'
+      });
+      if (briefRecord) {
+        await supabase
+          .from('briefs')
+          .update({ content: payload.content, raw_text: payload.raw_text })
+          .eq('id', briefRecord.id);
+      } else {
+        // F-097 R-01 — insert-on-first-save (rama sin `briefRecord`).
+        const { data } = await supabase
+          .from('briefs')
+          .insert({
+            client_id: clientId,
+            prompt_version_id: null, // DT-01 — brief manual, sin prompt_version
+            content: payload.content,
+            raw_text: payload.raw_text,
+            status: payload.status,
+            version: payload.version
+          })
+          .select('id, content, status, created_at')
+          .single();
+        if (data) setBriefRecord(data as ContentRecord); // subsecuentes = update (R-08)
+      }
       // F-084 R-07/R-08 — espejar city/state a `clients` en el mismo save.
       await mirrorCityStateToClient();
       toast.success('Borrador guardado');
@@ -1219,7 +1278,8 @@ export default function BriefPage() {
                   '✨ Generar Brief con AI'
                 )}
               </Button>
-              {briefRecord && !briefApproved && (
+              {/* F-097 R-03 — visible sin generar (no gateado por briefRecord). */}
+              {!briefApproved && (
                 <Button
                   variant='outline'
                   onClick={handleSaveDraft}
@@ -1235,7 +1295,8 @@ export default function BriefPage() {
                   )}
                 </Button>
               )}
-              {briefRecord && briefRecord.status !== 'approved' && (
+              {/* F-097 R-03 — aprobable sin generar (no gateado por briefRecord). */}
+              {!briefApproved && (
                 <Button
                   onClick={handleApproveBrief}
                   disabled={approvingBrief}
