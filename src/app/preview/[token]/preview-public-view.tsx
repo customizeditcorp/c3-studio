@@ -8,6 +8,9 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 // F-089 R-08/R-09 — el preview muestra la descripción SÓLO si content_status='approved'.
 import { resolveApprovedGbpDescription } from '@/lib/gbp-slice/content-status';
+// F-096 — Knowledge Panel compartido data-driven (fuente visual única preview↔entregable).
+import { GbpKnowledgePanel } from '@/components/gbp/gbp-knowledge-panel';
+import { buildSalesPanelData } from '@/lib/gbp-slice/knowledge-panel';
 
 type Props = {
   preview: {
@@ -383,105 +386,17 @@ export default function PreviewPublicView({
           </section>
         )}
 
-        {/* GBP Knowledge Panel Mockup */}
+        {/* GBP Knowledge Panel Mockup — F-096: componente compartido data-driven
+            (variant='sales'). Los 4 hardcodes falsos (Santa Maria / 5.0 / abierto ahora /
+            teléfono fake) se purgaron: ciudad/horario/teléfono salen del activo REAL. */}
         <section>
           <h2 className='mb-3 text-lg font-bold'>
             📍 Así aparecerás en Google
           </h2>
-          <div className="mx-auto max-w-sm overflow-hidden rounded-2xl border border-gray-200 bg-white font-[system-ui,-apple-system,'Segoe_UI',sans-serif] shadow-lg">
-            {/* Header with business info */}
-            <div className='p-4 pb-2'>
-              <h3 className='text-xl font-normal text-[#202124]'>
-                {businessName}
-              </h3>
-              <p className='mt-0.5 text-sm text-[#70757a] capitalize'>
-                {client.industry?.replace(/_/g, ' ')}
-              </p>
-              <div className='mt-1 flex items-center gap-1'>
-                <span className='text-sm text-[#fbbc04]'>★★★★★</span>
-                <span className='text-sm font-medium text-[#202124]'>5.0</span>
-                <span className='ml-1 text-sm text-[#4285f4]'>
-                  Nuevo negocio
-                </span>
-              </div>
-            </div>
-            {/* Action buttons (Google style) */}
-            <div className='flex divide-x divide-gray-100 border-t border-gray-100'>
-              {[
-                { icon: '📞', label: 'Llamar' },
-                { icon: '🗺️', label: 'Ruta' },
-                { icon: '🌐', label: 'Sitio web' }
-              ].map((btn) => (
-                <button
-                  key={btn.label}
-                  className='flex flex-1 flex-col items-center gap-1 py-3 text-[#4285f4] transition-colors hover:bg-gray-50'
-                >
-                  <span className='text-lg'>{btn.icon}</span>
-                  <span className='text-xs'>{btn.label}</span>
-                </button>
-              ))}
-            </div>
-            {/* Info rows */}
-            <div className='divide-y divide-gray-100 border-t border-gray-100'>
-              <div className='flex items-center gap-3 px-4 py-3'>
-                <span className='text-lg text-gray-400'>📍</span>
-                <span className='text-sm text-[#202124]'>
-                  Santa Maria, California
-                </span>
-              </div>
-              <div className='flex items-center gap-3 px-4 py-3'>
-                <span className='text-lg text-gray-400'>🕐</span>
-                <div>
-                  <span className='text-sm font-medium text-[#34a853]'>
-                    Abierto ahora
-                  </span>
-                  <span className='ml-2 text-sm text-[#202124]'>
-                    · Cierra a las 6pm
-                  </span>
-                </div>
-              </div>
-              <div className='flex items-center gap-3 px-4 py-3'>
-                <span className='text-lg text-gray-400'>📞</span>
-                <span className='text-sm text-[#202124]'>
-                  {client.phone || '(805) 555-0100'}
-                </span>
-              </div>
-            </div>
-            {/* Photos section - use real photos if available */}
-            {photos && photos.length > 0 ? (
-              <div className='flex gap-1 overflow-hidden border-t border-gray-100 p-2'>
-                {photos.slice(0, 3).map((photo, i) => (
-                  <div
-                    key={i}
-                    className='h-20 flex-1 overflow-hidden rounded bg-gray-100'
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={photo.public_url}
-                      alt={photo.alt_text_auto || businessName}
-                      className='h-full w-full object-cover'
-                    />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className='flex gap-1 border-t border-gray-100 p-2'>
-                {['bg-blue-100', 'bg-orange-100', 'bg-green-100'].map(
-                  (bg, i) => (
-                    <div
-                      key={i}
-                      className={`h-20 flex-1 rounded ${bg} flex items-center justify-center text-2xl`}
-                    >
-                      {i === 0 ? '🏠' : i === 1 ? '🔧' : '⭐'}
-                    </div>
-                  )
-                )}
-              </div>
-            )}
-            <p className='border-t border-gray-100 py-2 text-center text-[10px] text-gray-400'>
-              * Mockup ilustrativo — así lucirá tu perfil en Google
-            </p>
-          </div>
+          <GbpKnowledgePanel
+            variant='sales'
+            data={buildSalesPanelData({ gbpProfile, client, photos })}
+          />
         </section>
 
         {/* Mini-site Mockup */}
