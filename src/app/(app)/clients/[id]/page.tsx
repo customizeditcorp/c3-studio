@@ -38,6 +38,11 @@ import {
   buildDeliverableSummary,
   type DeliverableSummary
 } from '@/lib/clients/deliverable';
+// F-093 (R-03/R-04/R-05) — seam puro que decide el token efectivo + si persistir.
+import {
+  resolveDeliverableLinkAction,
+  type DeliverableLinkAction
+} from '@/lib/clients/deliverable-public';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -74,6 +79,9 @@ type Client = {
   // F-092 (R-06/R-09) — timestamp de entrega set-once; leído vía select('*'), tolera que
   // la columna aún no exista (frontera F-074): `undefined`/`null` → "aún no entregado".
   delivered_at: string | null;
+  // F-093 (R-01/R-18) — token del link público del entregable; leído vía select('*'),
+  // tolera columna ausente pre-apply. `null` = sin link generado aún.
+  deliverable_token: string | null;
 };
 
 export default function ClientDetailPage() {
@@ -333,6 +341,44 @@ export default function ClientDetailPage() {
   const cancelStatusChange = () => {
     setConfirmOpen(false);
     setPendingStatus(null);
+  };
+
+  // F-093 (R-03/R-04/R-05) — control del link público del entregable. El seam puro
+  // `resolveDeliverableLinkAction` decide el token efectivo + si persistir; sólo escribimos
+  // `clients.deliverable_token` cuando `shouldPersist` (generación lazy R-03 / rotación R-05),
+  // y siempre copiamos `${origin}/deliverable/${token}` al portapapeles (espeja `copyLink`
+  // del generador de preview). El botón está gateado por `delivered_at` en la UI (R-02).
+  const [deliverableLinkBusy, setDeliverableLinkBusy] = useState(false);
+  const handleDeliverableLink = async (action: DeliverableLinkAction) => {
+    if (!client || !tenantId) return;
+    setDeliverableLinkBusy(true);
+    try {
+      const { token, shouldPersist } = resolveDeliverableLinkAction({
+        currentToken: client.deliverable_token ?? null,
+        action
+      });
+      if (shouldPersist) {
+        const { error } = await supabase
+          .from('clients')
+          .update({ deliverable_token: token })
+          .eq('id', client.id)
+          .eq('tenant_id', tenantId);
+        if (error) {
+          // Surfacing honesto; nada cambia si el write falla (sin éxito silencioso).
+          toast.error(`No se pudo generar el link: ${error.message}`);
+          return;
+        }
+        await fetchClient(); // refresh in-place tras la write confirmada (§6.1)
+      }
+      const url = `${window.location.origin}/deliverable/${token}`;
+      await navigator.clipboard.writeText(url);
+      toast.success('Link de entregable copiado al portapapeles');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`No se pudo generar el link: ${message}`);
+    } finally {
+      setDeliverableLinkBusy(false);
+    }
   };
 
   if (loading) {
@@ -829,6 +875,72 @@ export default function ClientDetailPage() {
                   <p className='text-muted-foreground text-sm'>
                     Cargando entregable…
                   </p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* F-093 (R-02/R-03/R-04/R-05) — control del link PÚBLICO del entregable
+                (`/deliverable/[token]`, read-only client-facing). Gateado por `delivered_at`
+                (R-02: solo compartible tras la entrega). Genera lazy el uuid al primer click
+                (R-03), copia el mismo link estable si ya existe (R-04), y ofrece rotar/revocar
+                (R-05). AGREGA sin alterar el read-model de F-092 (R-17). */}
+            <Card className='mt-4 max-w-3xl'>
+              <CardHeader>
+                <CardTitle className='text-base'>
+                  Link público del entregable
+                </CardTitle>
+              </CardHeader>
+              <CardContent className='space-y-3'>
+                {!client.delivered_at ? (
+                  // R-02 — deshabilitado hasta la entrega; no permite crear el token.
+                  <>
+                    <Button disabled className='w-full sm:w-auto'>
+                      Generar link de entregable
+                    </Button>
+                    <p className='text-muted-foreground text-xs'>
+                      Disponible una vez que el cliente esté entregado.
+                    </p>
+                  </>
+                ) : client.deliverable_token ? (
+                  // R-04/R-05 — token ya generado: copiar (estable) o regenerar (revoca).
+                  <>
+                    <div className='flex flex-wrap gap-2'>
+                      <Button
+                        onClick={() => handleDeliverableLink('copy')}
+                        disabled={deliverableLinkBusy}
+                        className='w-full sm:w-auto'
+                      >
+                        Copiar link de entregable
+                      </Button>
+                      <Button
+                        variant='outline'
+                        onClick={() => handleDeliverableLink('regenerate')}
+                        disabled={deliverableLinkBusy}
+                        className='w-full sm:w-auto'
+                      >
+                        Regenerar link
+                      </Button>
+                    </div>
+                    <p className='text-muted-foreground text-xs'>
+                      El link es público y de solo lectura. Regenerar invalida
+                      el link anterior.
+                    </p>
+                  </>
+                ) : (
+                  // R-03 — sin token: generación lazy al primer click.
+                  <>
+                    <Button
+                      onClick={() => handleDeliverableLink('generate')}
+                      disabled={deliverableLinkBusy}
+                      className='w-full sm:w-auto'
+                    >
+                      Generar link de entregable
+                    </Button>
+                    <p className='text-muted-foreground text-xs'>
+                      Crea un link público de solo lectura para compartir con el
+                      cliente.
+                    </p>
+                  </>
                 )}
               </CardContent>
             </Card>
