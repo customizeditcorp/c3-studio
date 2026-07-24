@@ -76,6 +76,31 @@ export interface RawClient {
   content_language?: string | null; // F-081: idioma de salida por-cliente ('es'/'en', default 'es')
 }
 
+/**
+ * F-095 — Raw `briefs` row as read from the DB (read-only; no DDL). The UI persists
+ * `content` as a flat key→string jsonb object (may arrive as a JSON string). Only the
+ * Scope-A facts are consumed downstream (see `resolveBriefFacts` in `brief.ts`).
+ */
+export interface RawBriefRow {
+  id: string;
+  client_id?: string;
+  status: string;
+  content: Record<string, unknown> | string | null;
+  created_at?: string;
+}
+
+/**
+ * F-095 — Scope-A facts extracted from an APPROVED brief, already sanitized. Only
+ * fields present and non-empty appear (R-02: "no inventes datos"). Empty brief -> `{}`.
+ */
+export interface BriefFacts {
+  licenses?: string;
+  years_experience?: string;
+  differentiators?: string;
+  guarantees?: string;
+  success_cases?: string;
+}
+
 /** Raw `client_photos` row (L3). `is_logo`/`gbp_category` are media metadata,
  * NOT authoritative for the logo (R-05). */
 export interface RawPhoto {

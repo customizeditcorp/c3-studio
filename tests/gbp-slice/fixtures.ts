@@ -8,7 +8,8 @@ import type {
   RawOfferRow,
   RawBrandboard,
   RawClient,
-  RawPhoto
+  RawPhoto,
+  RawBriefRow
 } from '../../src/lib/gbp-slice/types.ts';
 
 export const JD_CLIENT_ID = '1d3b28b1-dce2-4e48-b8ac-a5561b202a6c';
@@ -124,6 +125,57 @@ export const PHOTO_EXTERIOR: RawPhoto = {
   approved: true,
   storage_path: 'clients/jd/exterior.jpg',
   alt_text: 'exterior'
+};
+
+/**
+ * F-095 — An APPROVED brief for JD Valley, `content` a flat key→string object as the
+ * onboarding UI persists it. Includes the 5 Scope-A facts plus noise fields (raw_text,
+ * budget) that MUST be ignored by `resolveBriefFacts`.
+ */
+export const APPROVED_BRIEF: RawBriefRow = {
+  id: 'brief-jd-approved',
+  client_id: JD_CLIENT_ID,
+  status: 'approved',
+  created_at: '2026-07-20T10:00:00.000Z',
+  content: {
+    licenses: '1155610',
+    years_experience: '20',
+    differentiators:
+      'Preparación profesional de superficies y limpieza total al terminar',
+    guarantees: 'Garantía de satisfacción del 100%',
+    success_cases:
+      'Repintado completo de una comunidad en Buellton con cero quejas',
+    // noise that must NOT surface as a Scope-A fact:
+    budget: '5000',
+    raw_text: '- licenses: 1155610\n- years_experience: 20'
+  }
+};
+
+/** F-095 — Brief with `content` as a JSON STRING (defensive parse path). */
+export const APPROVED_BRIEF_STRING_CONTENT: RawBriefRow = {
+  id: 'brief-jd-string',
+  client_id: JD_CLIENT_ID,
+  status: 'approved',
+  created_at: '2026-07-21T10:00:00.000Z',
+  content: JSON.stringify({
+    licenses: '1155610',
+    years_experience: '20'
+  })
+};
+
+/** F-095 — Brief with blank/absent/non-string Scope-A fields (all must be omitted). */
+export const APPROVED_BRIEF_SPARSE: RawBriefRow = {
+  id: 'brief-jd-sparse',
+  client_id: JD_CLIENT_ID,
+  status: 'approved',
+  created_at: '2026-07-22T10:00:00.000Z',
+  content: {
+    licenses: '1155610',
+    years_experience: '   ', // blank -> omit
+    differentiators: '', // empty -> omit
+    guarantees: 42 as unknown as string // non-string -> omit
+    // success_cases absent -> omit
+  }
 };
 
 /** A well-formed generated GBP JSON (as the model would return). */

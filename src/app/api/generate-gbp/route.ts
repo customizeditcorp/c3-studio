@@ -36,7 +36,8 @@ import {
   guardGbpDescription,
   GbpDomainError,
   ASSET_STATUS_ON_PREVIEW,
-  SLICE_ASSET_TYPE
+  SLICE_ASSET_TYPE,
+  resolveGbpTemperature // F-095 R-07/R-08
 } from '@/lib/gbp-slice';
 // F-089 R-06 — la regeneración repone `content_status='draft'`: el contenido nuevo
 // invalida cualquier aprobación previa (la aprobación siempre refleja el contenido actual).
@@ -168,6 +169,18 @@ export async function POST(request: NextRequest) {
       .eq('client_id', client_id)
       .maybeSingle();
 
+    // F-095 (R-01/R-03/R-12): load the most-recent APPROVED brief, scoped to client_id
+    // (tenant already validated above). Absent -> null -> BriefFacts {} (no-regression).
+    // Read-only: only `.select` on `briefs` (R-10).
+    const { data: brief } = await supabase
+      .from('briefs')
+      .select('id, content, status, created_at')
+      .eq('client_id', client_id)
+      .eq('status', 'approved')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
     const ctx = readGbpContext({
       client,
       offer: pre.offer,
@@ -175,7 +188,8 @@ export async function POST(request: NextRequest) {
       photos: photos ?? [],
       operationalSignal: planSignal
         ? { gbp_created: planSignal.gbp_created }
-        : null
+        : null,
+      brief: brief ?? null
     });
 
     // --- F-065 method grounding: augment the system prompt (additive, degradable) ---
@@ -239,6 +253,10 @@ export async function POST(request: NextRequest) {
     const completion = await openai.chat.completions.create({
       model: AI_MODEL,
       max_tokens: 4096,
+      // F-095 R-07/R-08: low/controlled temperature (DT-01 default 0.3, env-overridable
+      // with robust fallback) so the copy anchors on the concrete brief/city facts
+      // instead of drifting to generic phrasing at the provider default 1.0.
+      temperature: resolveGbpTemperature(process.env.OPENAI_GBP_TEMPERATURE),
       response_format: { type: 'json_object' }, // R-06: the prompt mandates "SOLO JSON"; make it contractual (parser also strips fences defensively)
       messages: [
         { role: 'system', content: systemContent },

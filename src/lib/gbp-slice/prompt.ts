@@ -8,6 +8,7 @@
  */
 import type { GbpContext } from './context.ts';
 import { buildLanguageDirective } from '../content-language.ts';
+import { BRIEF_FACT_KEYS, BRIEF_FACT_LABELS } from './brief.ts';
 
 /** Final required GBP fields validated before write (R-10/R-11). `business_name` is
  * NOT here: it is client-sourced (R-03), not decided by the model output. */
@@ -53,7 +54,8 @@ export function buildGbpSystemPrompt(base?: string | null): string {
 /** Assembles the user message grounding the generation in OFV + brandboard + client
  * (R-03/R-04/R-10). Includes degradation notes for logo/media/op-state. */
 export function buildGbpUserMessage(ctx: GbpContext): string {
-  const { client, offer, brandboard, logo, media, operational } = ctx;
+  const { client, offer, brandboard, logo, media, operational, briefFacts } =
+    ctx;
 
   const cities = Array.isArray(client.service_area_cities)
     ? (client.service_area_cities as unknown[]).join(', ')
@@ -71,6 +73,20 @@ export function buildGbpUserMessage(ctx: GbpContext): string {
         .join(', ')
   );
   if (cities) lines.push('Ciudades de servicio: ' + cities);
+
+  // F-095 (R-04/R-05): sección de hechos verificables del brief aprobado, insertada
+  // TRAS los datos del cliente. Una línea por hecho presente (R-02: omitir ausentes);
+  // si no hay hechos (sin brief aprobado o todo vacío) NO se emite la sección (R-03).
+  const briefFactLines = BRIEF_FACT_KEYS.filter(
+    (key) => typeof briefFacts[key] === 'string' && briefFacts[key]!.length > 0
+  ).map((key) => '- ' + BRIEF_FACT_LABELS[key] + ': ' + briefFacts[key]);
+  if (briefFactLines.length > 0) {
+    lines.push('');
+    lines.push(
+      '## DATOS DEL BRIEF APROBADO (hechos verificables — usar, no inventar)'
+    );
+    lines.push(...briefFactLines);
+  }
 
   lines.push('');
   lines.push(
