@@ -38,6 +38,11 @@ export interface Client {
   // la migración gateada `20260723_f092_clients_delivered_at.sql`; nullable (un cliente aún
   // no entregado tiene `delivered_at=null`).
   delivered_at: string | null;
+  // F-093 (R-01/R-18) — token uuid inadivinable para la URL pública del entregable
+  // (`/deliverable/[token]`). Aditivo nullable, aplicado por la migración gateada
+  // `20260724_f093_clients_deliverable_token.sql`; un cliente sin link generado tiene
+  // `deliverable_token=null`. Leído vía `select('*')` (tolera columna ausente pre-apply).
+  deliverable_token: string | null;
 }
 
 export interface Diagnostic {
