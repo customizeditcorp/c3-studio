@@ -18,14 +18,18 @@ type Props = {
     type: string;
     approved: boolean;
     expires_at: string;
-    metadata?: {
-      plan_name?: string;
-      tier?: string;
-      price?: number;
-      price_installment?: number;
-      price_discount?: number;
-      billing?: string;
-      features?: string[];
+    // F-091 R-08 — el plan vive en la columna real jsonb `data.metadata`, no en
+    // `preview.metadata` (columna inexistente, read muerto). Se tipa solo lo que el view lee.
+    data?: {
+      metadata?: {
+        plan_name?: string;
+        tier?: string;
+        price?: number;
+        price_installment?: number;
+        price_discount?: number;
+        billing?: string;
+        features?: string[];
+      } | null;
     } | null;
     clients: {
       id: string;
@@ -555,18 +559,18 @@ export default function PreviewPublicView({
         </section>
 
         {/* Plan recommendation from diagnostic */}
-        {preview.metadata?.plan_name && (
+        {preview.data?.metadata?.plan_name && (
           <section>
             <h2 className='mb-3 text-lg font-bold'>🎯 Plan Recomendado</h2>
             <Card className='border-[#FF5733]'>
               <CardHeader className='rounded-t-lg bg-[#FF5733]/10 pb-3'>
                 <CardTitle className='text-[#FF5733]'>
-                  {preview.metadata.plan_name}
+                  {preview.data?.metadata.plan_name}
                 </CardTitle>
               </CardHeader>
               <CardContent className='space-y-4 pt-4'>
-                {preview.metadata.tier === 'presencia_digital' &&
-                preview.metadata.price_installment ? (
+                {preview.data?.metadata.tier === 'presencia_digital' &&
+                preview.data?.metadata.price_installment ? (
                   <div className='grid grid-cols-2 gap-3'>
                     <div className='rounded-xl border-2 border-[#FF5733] bg-[#FF5733]/5 p-4 text-center'>
                       <p className='text-xs font-semibold text-[#FF5733] uppercase'>
@@ -574,7 +578,7 @@ export default function PreviewPublicView({
                       </p>
                       <p className='text-2xl font-bold text-[#FF5733]'>
                         3 × $
-                        {preview.metadata.price_installment.toLocaleString()}
+                        {preview.data?.metadata.price_installment.toLocaleString()}
                       </p>
                       <p className='text-xs text-gray-500'>pagos mensuales</p>
                       <p className='mt-1 text-sm font-medium'>Total $3,300</p>
@@ -587,7 +591,8 @@ export default function PreviewPublicView({
                         Opción B
                       </p>
                       <p className='text-2xl font-bold'>
-                        ${preview.metadata.price_discount?.toLocaleString()}
+                        $
+                        {preview.data?.metadata.price_discount?.toLocaleString()}
                       </p>
                       <p className='text-xs text-gray-500'>pago único</p>
                       <p className='mt-1 text-sm font-medium text-green-600'>
@@ -597,16 +602,16 @@ export default function PreviewPublicView({
                   </div>
                 ) : (
                   <p className='text-center text-3xl font-bold text-[#FF5733]'>
-                    ${preview.metadata.price?.toLocaleString()}
+                    ${preview.data?.metadata.price?.toLocaleString()}
                     <span className='text-base font-normal text-gray-500'>
-                      /{preview.metadata.billing}
+                      /{preview.data?.metadata.billing}
                     </span>
                   </p>
                 )}
-                {preview.metadata.features &&
-                  preview.metadata.features.length > 0 && (
+                {preview.data?.metadata.features &&
+                  preview.data?.metadata.features.length > 0 && (
                     <ul className='space-y-1'>
-                      {preview.metadata.features.map((f, i) => (
+                      {preview.data?.metadata.features.map((f, i) => (
                         <li key={i} className='flex items-center gap-2 text-sm'>
                           <span className='text-[#FF5733]'>✓</span> {f}
                         </li>
@@ -639,7 +644,7 @@ export default function PreviewPublicView({
                   onClick={handleApprove}
                   disabled={submitting}
                 >
-                  {preview.metadata?.plan_name
+                  {preview.data?.metadata?.plan_name
                     ? '✅ Aprobar y comenzar'
                     : '✅ Aprobar diseño'}
                 </Button>

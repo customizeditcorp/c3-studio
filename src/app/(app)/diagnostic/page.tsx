@@ -464,7 +464,16 @@ export default function DiagnosticPage() {
         token,
         type: 'combined',
         expires_at: expiresAt.toISOString(),
-        metadata: previewMeta,
+        // F-091 R-02/R-06 — `metadata` NO es columna de `previews` (42703) y `data` (jsonb)
+        // es NOT NULL. Reubicamos previewMeta dentro de `data.metadata` (home correcto,
+        // sin DDL); el view lee la tarjeta de plan desde `preview.data?.metadata`.
+        data: {
+          kind: 'combined',
+          source: 'diagnostic',
+          client_id: savedClientId,
+          generated_at: new Date().toISOString(),
+          metadata: previewMeta
+        },
         created_by: authUser.id
       });
 
