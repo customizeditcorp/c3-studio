@@ -95,6 +95,15 @@ export default function PreviewGeneratorPage() {
           client_id: selectedClientId,
           token,
           type: previewType,
+          // F-091 R-01/R-03/R-04/R-05 — `previews.data` (jsonb) es NOT NULL sin default.
+          // Snapshot mínimo client-side (sin ctx server-side): el preview público NO
+          // renderiza desde `data` (deriva el GBP de gbp_profiles LIVE), sólo satisface NOT NULL.
+          data: {
+            kind: previewType,
+            source: 'manual-generator',
+            client_id: selectedClientId,
+            generated_at: new Date().toISOString()
+          },
           expires_at: expiresAt.toISOString(),
           approved: false,
           created_by: user.id

@@ -33,7 +33,11 @@ const diagnosticSrc = readFileSync(
 function previewsInsertBlock(src: string): string {
   // Aísla SOLO el .insert a previews (el generator también tiene un
   // .from('previews').select('*') de lectura, que no debe confundirse).
-  const m = src.match(/\.from\('previews'\)\s*\.insert\(\{[\s\S]{0,300}?\}\)/);
+  // F-091: los inserts ahora incluyen un objeto anidado `data: {...}` no-null,
+  // por lo que el bloque supera la ventana original de 300 chars. La ventana se
+  // amplía; el match sigue siendo lazy y corta en el primer `})` (el `}` que cierra
+  // `data` va seguido de `,`, no de `)`), así que la isolación sigue siendo exacta.
+  const m = src.match(/\.from\('previews'\)\s*\.insert\(\{[\s\S]{0,1200}?\}\)/);
   assert.ok(
     m,
     "no se encontró el .from('previews').insert({...}) en el fuente"
