@@ -327,7 +327,10 @@ test('T-21 (R-10) la semántica del backfill = la del gating (no-vacía+approved
 test('T-22 (R-11) el flujo de aprobación de briefs sigue intacto (handleApproveBrief)', () => {
   const brief = read('src/app/(app)/onboarding/brief/[clientId]/page.tsx');
   assert.match(brief, /handleApproveBrief/);
-  assert.match(brief, /\.from\('briefs'\)\s*\.update\(\{ status: 'approved'/);
+  // F-097: la actualización de approve ahora sincroniza también la columna
+  // raw_text (3 props → objeto multilínea). Intent intacto: briefs.update fija
+  // status:'approved'. Regex tolerante al salto de línea tras `{`.
+  assert.match(brief, /\.from\('briefs'\)\s*\.update\(\{\s*status: 'approved'/);
   assert.match(brief, /handleApprovePersona/);
 });
 

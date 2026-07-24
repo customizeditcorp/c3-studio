@@ -28,6 +28,9 @@ import {
 // F-089 R-03 — el home de `gbp_description` es `gbp_profiles` (lo escribe `generate-gbp`);
 // este write-path NO debe duplicar esa fila en `generated_outputs`.
 import { shouldPersistGeneratedOutput } from '@/lib/gbp-slice/content-status';
+// F-097 — regenerar = UPDATE del draft vivo (no INSERT acumulativo) en el
+// path compartido del tableMap (brief/buyer_persona/ofv).
+import { resolveWriteMode } from '@/lib/briefs/write-path';
 const AI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o';
 export async function POST(request: NextRequest) {
   try {
@@ -430,11 +433,30 @@ export async function POST(request: NextRequest) {
           insertData.content as Record<string, unknown>,
           methodGrounding
         );
-        const { data, error } = await supabase
+        // F-097 R-06/R-07/R-08 — regenerar = UPDATE del draft vivo (conserva
+        // `id`/`version`), no INSERT acumulativo. Aislamiento por `client_id`
+        // (R-14; tenant ya verificado arriba). A lo sumo 1 draft por
+        // (client_id, step). Si no hay draft vivo (o la última está `approved`)
+        // → INSERT como antes (primera generación / regeneración post-aprobación).
+        const { data: latest } = await supabase
           .from(table)
-          .insert(insertData)
-          .select()
-          .single();
+          .select('id, status')
+          .eq('client_id', client_id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const mode = resolveWriteMode(
+          latest as { id: string; status: string } | null
+        );
+        const { data, error } =
+          mode.mode === 'update'
+            ? await supabase
+                .from(table)
+                .update(insertData)
+                .eq('id', mode.id)
+                .select()
+                .single()
+            : await supabase.from(table).insert(insertData).select().single();
         if (error) {
           return NextResponse.json(
             { success: false, error: error.message, code: error.code },
