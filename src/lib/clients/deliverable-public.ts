@@ -18,6 +18,9 @@
 // Import relativo con extensión `.ts` (precedente `deliverable.ts` → `content-status.ts`):
 // reusa el gating de la descripción aprobada de F-089 en un único source-of-truth.
 import { resolveApprovedGbpDescription } from '../gbp-slice/content-status.ts';
+// F-096 (R-11) — línea de horario estática honesta (sin "abierto ahora"). Import de VALOR;
+// `knowledge-panel.ts` importa `PublicDeliverableView` SOLO como tipo (erased) → sin ciclo.
+import { formatGbpHoursLine } from '../gbp-slice/knowledge-panel.ts';
 
 /** Valor de `verification_status` que autoriza el badge "publicado y verificado" (R-10). */
 export const VERIFIED_STATUS = 'verified';
@@ -56,6 +59,10 @@ export interface PublicDeliverableInputs {
     phone?: string | null;
     website_url?: string | null;
     address?: string | null;
+    // F-096 (R-11) — aditivo: categoría + horario (ya llegan por `select('*')`; solo se
+    // tipa lo consumido). NO se agrega rating (R-05): `gbp_profiles` no lo tiene.
+    primary_category?: string | null;
+    hours?: unknown;
   } | null;
   /** Fila `clients` (subset) — fallback de NAP cuando el perfil GBP no lo trae. */
   client: {
@@ -95,6 +102,10 @@ export interface PublicDeliverableView {
   photos: PublicDeliverablePhoto[];
   /** "en línea desde {deliveredAt}" (R-09). */
   deliveredAt: string | null;
+  /** F-096 (R-11) — categoría real (`primary_category`) o `null` → fila omitida. Aditivo. */
+  category: string | null;
+  /** F-096 (R-11) — línea de horario estática honesta o `null` → fila omitida. Aditivo. */
+  hours: string | null;
 }
 
 /**
@@ -140,6 +151,12 @@ export function buildPublicDeliverableView(
     }))
     .filter((p): p is PublicDeliverablePhoto => p.url !== null);
 
+  // F-096 (R-11) — extensión ADITIVA: categoría + horario honestos. NO se agrega rating (R-05).
+  // Los campos existentes conservan su semántica EXACTA (place_id descartado, verified boolean,
+  // description gateada) → sin regresión de honestidad F-093 (R-12).
+  const category = nonEmpty(profile?.primary_category);
+  const hours = formatGbpHoursLine(profile?.hours);
+
   return {
     businessName,
     gbpUrl,
@@ -147,7 +164,9 @@ export function buildPublicDeliverableView(
     description,
     nap,
     photos,
-    deliveredAt: nonEmpty(inputs.deliveredAt)
+    deliveredAt: nonEmpty(inputs.deliveredAt),
+    category,
+    hours
   };
 }
 
