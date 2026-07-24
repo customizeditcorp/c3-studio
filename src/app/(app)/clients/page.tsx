@@ -32,15 +32,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Icons } from '@/components/icons';
-
-const STATUS_LABELS: Record<string, string> = {
-  lead: 'Lead',
-  diagnosed: 'Diagnosticado',
-  negotiating: 'Negociando',
-  onboarding: 'Onboarding',
-  active: 'Activo',
-  churned: 'Perdido'
-};
+// F-092 (R-10/R-11/R-13) — labels canónicos de los 9 estados (incl. delivered/maintenance/
+// paused). Reemplaza el mapa local incompleto que ocultaba esos estados del filtro/badge.
+import { STATUS_LABELS, statusLabel } from '@/lib/clients/client-status';
 
 const STATUS_VARIANTS: Record<
   string,
@@ -51,6 +45,10 @@ const STATUS_VARIANTS: Record<
   negotiating: 'outline',
   onboarding: 'default',
   active: 'default',
+  // F-092 (R-10/R-13) — variantes legibles para los estados post-venta antes omitidos.
+  delivered: 'default',
+  maintenance: 'outline',
+  paused: 'secondary',
   churned: 'destructive'
 };
 
@@ -236,7 +234,7 @@ export default function ClientsPage() {
                       <Badge
                         variant={STATUS_VARIANTS[client.status] || 'secondary'}
                       >
-                        {STATUS_LABELS[client.status] || client.status}
+                        {statusLabel(client.status)}
                       </Badge>
                     </TableCell>
                     <TableCell>

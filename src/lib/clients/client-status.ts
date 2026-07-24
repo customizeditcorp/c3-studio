@@ -134,12 +134,20 @@ export interface ClientStatusWriteClient {
  * la write, lee `error` y lanza en fallo (R-11: sin éxito silencioso; el caller
  * superficia con `toast.error`). Scoped por `id` + `tenant_id` (defensa en profundidad,
  * mirror del fetch). Devuelve el nuevo estado persistido en éxito.
+ *
+ * F-092 (R-06/R-07/R-08) — `delivered_at` set-once: SÓLO cuando `target==='delivered'` Y el
+ * `delivered_at` actual del cliente (pasado por el caller vía `currentDeliveredAt`) es `NULL`,
+ * el UPDATE incluye `delivered_at=now` (registra cuándo se entregó por primera vez). Si ya
+ * tenía valor, NO se pisa (set-once); si `target` no es `delivered`, la columna queda intacta
+ * (ninguna otra transición la toca). El seam se mantiene puro/determinista: recibe el valor
+ * actual del caller (la ficha ya carga el cliente), sin roundtrip de lectura extra.
  */
 export async function persistClientStatus(deps: {
   supabase: ClientStatusWriteClient;
   clientId: string;
   tenantId: string;
   target: string;
+  currentDeliveredAt?: string | null;
   now?: () => string;
 }): Promise<ClientStatus> {
   const { supabase, clientId, tenantId, target } = deps;
@@ -147,12 +155,19 @@ export async function persistClientStatus(deps: {
   if (!isValidClientStatus(target)) {
     throw new Error(`Estado de cliente inválido: "${target}"`);
   }
+  const now = deps.now?.() ?? new Date().toISOString();
+  const values: Record<string, unknown> = {
+    status: target,
+    updated_at: now
+  };
+  // F-092 (R-06/R-07): set-once. Sólo al ENTRAR a `delivered` con delivered_at aún NULL.
+  // Cualquier otro target (R-08) o un delivered_at ya presente (R-07) deja la columna intacta.
+  if (target === 'delivered' && !deps.currentDeliveredAt) {
+    values.delivered_at = now;
+  }
   const { error } = await supabase
     .from('clients')
-    .update({
-      status: target,
-      updated_at: deps.now?.() ?? new Date().toISOString()
-    })
+    .update(values)
     .eq('id', clientId)
     .eq('tenant_id', tenantId);
   // R-11: error honesto; NO retorna éxito silencioso.

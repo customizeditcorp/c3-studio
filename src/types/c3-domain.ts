@@ -34,6 +34,10 @@ export interface Client {
   tier: string | null;
   created_at: string;
   updated_at: string;
+  // F-092 (R-06) — timestamp de entrega (set-once al entrar a `delivered`). Aplicado por
+  // la migración gateada `20260723_f092_clients_delivered_at.sql`; nullable (un cliente aún
+  // no entregado tiene `delivered_at=null`).
+  delivered_at: string | null;
 }
 
 export interface Diagnostic {

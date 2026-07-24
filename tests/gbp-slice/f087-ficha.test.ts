@@ -19,11 +19,23 @@ const fichaSrc = readFileSync(
 );
 
 test('T-13 la ficha carga origen + lifecycle del activo (query + estado)', () => {
-  // La query del gbp_profiles trae los campos del lifecycle/origen.
-  assert.match(
-    fichaSrc,
-    /\.select\('description, gbp_mode, verification_status, verified_at'\)/
+  // La query del gbp_profiles trae los campos del lifecycle/origen. F-092 extendió el
+  // MISMO select con gbp_url/place_id/content_status (superset); los campos F-087 siguen.
+  const gbpSelect = fichaSrc.match(
+    /\.from\('gbp_profiles'\)\s*\.select\(\s*'([^']*)'/
   );
+  assert.ok(gbpSelect, 'debe existir el select de gbp_profiles');
+  for (const field of [
+    'description',
+    'gbp_mode',
+    'verification_status',
+    'verified_at'
+  ]) {
+    assert.ok(
+      gbpSelect![1].includes(field),
+      `el select de gbp_profiles debe seguir trayendo ${field} (no-regresión F-087)`
+    );
+  }
   assert.match(fichaSrc, /setGbpLifecycle\(/);
 });
 

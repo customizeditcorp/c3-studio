@@ -34,6 +34,10 @@ import {
   persistClientStatus,
   type ClientStatusWriteClient
 } from '@/lib/clients/client-status';
+import {
+  buildDeliverableSummary,
+  type DeliverableSummary
+} from '@/lib/clients/deliverable';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -67,6 +71,9 @@ type Client = {
   status: string;
   tier: string | null;
   created_at: string;
+  // F-092 (R-06/R-09) — timestamp de entrega set-once; leído vía select('*'), tolera que
+  // la columna aún no exista (frontera F-074): `undefined`/`null` → "aún no entregado".
+  delivered_at: string | null;
 };
 
 export default function ClientDetailPage() {
@@ -93,6 +100,22 @@ export default function ClientDetailPage() {
     gbpMode: string | null;
     verificationStatus: string | null;
     verifiedAt: string | null;
+  } | null>(null);
+
+  // F-092 (R-01/R-03) — filas vivas que alimentan el read-model del entregable. Se cargan
+  // en el mismo `Promise.all` del fetch; el summary se computa en el render (agregación viva,
+  // NO snapshot). `null` mientras carga.
+  const [deliverableData, setDeliverableData] = useState<{
+    gbpProfile: {
+      gbp_url: string | null;
+      place_id: string | null;
+      verification_status: string | null;
+      verified_at: string | null;
+      content_status: string | null;
+    } | null;
+    hasApprovedPhotos: boolean;
+    preview: { approved: boolean | null; approved_at: string | null } | null;
+    gbpAsset: { status: string | null } | null;
   } | null>(null);
 
   type ProgressState = {
@@ -141,7 +164,8 @@ export default function ClientDetailPage() {
       { data: ofvData },
       { data: gbpData },
       { data: photosData },
-      { data: previewData }
+      { data: previewData },
+      { data: gbpAssetData }
     ] = await Promise.all([
       supabase
         .from('diagnostics')
@@ -184,7 +208,9 @@ export default function ClientDetailPage() {
         .maybeSingle(),
       supabase
         .from('gbp_profiles')
-        .select('description, gbp_mode, verification_status, verified_at')
+        .select(
+          'description, gbp_mode, verification_status, verified_at, gbp_url, place_id, content_status'
+        )
         .eq('client_id', id)
         .limit(1)
         .maybeSingle(),
@@ -197,8 +223,16 @@ export default function ClientDetailPage() {
         .maybeSingle(),
       supabase
         .from('previews')
-        .select('id')
+        .select('id, approved, approved_at')
         .eq('client_id', id)
+        .limit(1)
+        .maybeSingle(),
+      // F-092 (R-03 vi) — fila `client_assets` del canal GBP (estado del activo).
+      supabase
+        .from('client_assets')
+        .select('status')
+        .eq('client_id', id)
+        .eq('asset_type', 'gbp')
         .limit(1)
         .maybeSingle()
     ]);
@@ -225,6 +259,27 @@ export default function ClientDetailPage() {
           }
         : null
     );
+
+    // F-092 (R-01/R-03) — filas vivas del entregable (agregación viva en el render).
+    setDeliverableData({
+      gbpProfile: gbpData
+        ? {
+            gbp_url: gbpData.gbp_url ?? null,
+            place_id: gbpData.place_id ?? null,
+            verification_status: gbpData.verification_status ?? null,
+            verified_at: gbpData.verified_at ?? null,
+            content_status: gbpData.content_status ?? null
+          }
+        : null,
+      hasApprovedPhotos: !!photosData,
+      preview: previewData
+        ? {
+            approved: previewData.approved ?? null,
+            approved_at: previewData.approved_at ?? null
+          }
+        : null,
+      gbpAsset: gbpAssetData ? { status: gbpAssetData.status ?? null } : null
+    });
 
     setLoading(false);
   };
@@ -256,7 +311,10 @@ export default function ClientDetailPage() {
         supabase: supabase as unknown as ClientStatusWriteClient,
         clientId: client.id,
         tenantId,
-        target
+        target,
+        // F-092 (R-06/R-07) — set-once: pasar el delivered_at actual del cliente ya cargado;
+        // el seam sólo escribe delivered_at al ENTRAR a `delivered` con este valor en NULL.
+        currentDeliveredAt: client.delivered_at ?? null
       });
       setConfirmOpen(false);
       setPendingStatus(null);
@@ -309,6 +367,18 @@ export default function ClientDetailPage() {
   // `linearStatus` decide si mostrar el carril lineal o el badge fuera-de-carril.
   const linearStatus = isLinearStatus(client.status);
   const currentStatusIndex = statusStepIndex(client.status);
+
+  // F-092 (R-01/R-03/R-09) — read-model del entregable (agregación viva de los activos ya
+  // cargados + delivered_at del cliente). Se computa en el render; nada se persiste.
+  const deliverable: DeliverableSummary | null = deliverableData
+    ? buildDeliverableSummary({
+        deliveredAt: client.delivered_at ?? null,
+        gbpProfile: deliverableData.gbpProfile,
+        hasApprovedPhotos: deliverableData.hasApprovedPhotos,
+        preview: deliverableData.preview,
+        gbpAsset: deliverableData.gbpAsset
+      })
+    : null;
 
   return (
     <PageContainer
@@ -409,6 +479,7 @@ export default function ClientDetailPage() {
             <TabsTrigger value='brief'>Brief & Persona</TabsTrigger>
             <TabsTrigger value='photos'>Fotos</TabsTrigger>
             <TabsTrigger value='gbp'>GBP</TabsTrigger>
+            <TabsTrigger value='deliverable'>Entregable</TabsTrigger>
             <TabsTrigger value='readiness'>Readiness</TabsTrigger>
             <TabsTrigger value='presencia'>Presencia Digital</TabsTrigger>
           </TabsList>
@@ -684,6 +755,81 @@ export default function ClientDetailPage() {
                 <Button asChild>
                   <Link href={`/gbp/${client.id}`}>Gestionar GBP</Link>
                 </Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value='deliverable' className='mt-4'>
+            {/* F-092 (R-02/R-03/R-04/R-09) — superficie de agregación VIVA read-only de lo
+                entregado: los 6 campos (GBP link + verificación + contenido + fotos + preview
+                + canal GBP) + indicador de honestidad de contenido + delivered_at. Deriva
+                todo del estado vivo (sin snapshot); degrada honestamente lo pendiente. */}
+            <Card className='max-w-3xl'>
+              <CardHeader>
+                <CardTitle className='text-base'>
+                  Entregable del cliente
+                </CardTitle>
+              </CardHeader>
+              <CardContent className='space-y-4'>
+                {/* delivered_at (R-09): fecha si presente, degradación honesta si NULL. */}
+                <div className='flex items-center justify-between border-b pb-3'>
+                  <span className='text-muted-foreground text-sm font-medium'>
+                    Entregado
+                  </span>
+                  {deliverable?.deliveredAt ? (
+                    <Badge className='border-green-200 bg-green-100 text-green-800'>
+                      {new Date(deliverable.deliveredAt).toLocaleDateString(
+                        'es-MX'
+                      )}
+                    </Badge>
+                  ) : (
+                    <Badge variant='secondary'>Aún no entregado</Badge>
+                  )}
+                </div>
+
+                {deliverable ? (
+                  <div className='space-y-3'>
+                    {(
+                      [
+                        { key: 'gbpLink', title: 'GBP publicado' },
+                        { key: 'verification', title: 'Verificación' },
+                        { key: 'content', title: 'Contenido' },
+                        { key: 'photos', title: 'Fotos' },
+                        { key: 'preview', title: 'Preview' },
+                        { key: 'gbpChannel', title: 'Canal GBP' }
+                      ] as const
+                    ).map(({ key, title }) => {
+                      const field = deliverable[key];
+                      return (
+                        <div
+                          key={key}
+                          className='flex items-start justify-between gap-3'
+                        >
+                          <div className='min-w-0'>
+                            <p className='text-sm font-medium'>{title}</p>
+                            <p className='text-muted-foreground text-xs'>
+                              {field.label}
+                            </p>
+                            {field.detail && (
+                              <p className='text-muted-foreground mt-0.5 truncate text-xs'>
+                                {field.detail}
+                              </p>
+                            )}
+                          </div>
+                          <Badge
+                            variant={field.present ? 'default' : 'secondary'}
+                          >
+                            {field.present ? 'Entregado' : 'Pendiente'}
+                          </Badge>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className='text-muted-foreground text-sm'>
+                    Cargando entregable…
+                  </p>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

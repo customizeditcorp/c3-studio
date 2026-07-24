@@ -9,6 +9,9 @@ import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
+// F-092 (R-10/R-12/R-13) — labels canónicos de los 9 estados (incl. delivered/maintenance/
+// paused). Reemplaza el mapa local incompleto que ocultaba esos estados del desglose.
+import { STATUS_LABELS } from '@/lib/clients/client-status';
 
 type Metrics = {
   totalClients: number;
@@ -47,15 +50,6 @@ const ACTION_LABELS: Record<string, string> = {
   preview_approved: '✅ Preview aprobado',
   gbp_profile_updated: '🏢 Perfil GBP actualizado',
   gbp_post_created: '📝 Post GBP creado'
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  lead: 'Lead',
-  diagnosed: 'Diagnosticado',
-  negotiating: 'Negociando',
-  onboarding: 'Onboarding',
-  active: 'Activo',
-  churned: 'Perdido'
 };
 
 export default function C3Dashboard() {
