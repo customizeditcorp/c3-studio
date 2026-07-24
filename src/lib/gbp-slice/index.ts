@@ -12,8 +12,20 @@ export type {
   RawBrandboard,
   RawClient,
   RawPhoto,
+  RawBriefRow,
+  BriefFacts,
   NormalizedOffer
 } from './types.ts';
+// F-095 — Brief facts (Scope-A) + generation params seams.
+export {
+  resolveBriefFacts,
+  BRIEF_FACT_KEYS,
+  BRIEF_FACT_LABELS
+} from './brief.ts';
+export {
+  resolveGbpTemperature,
+  DEFAULT_GBP_TEMPERATURE
+} from './generation-params.ts';
 export {
   isOfferNonEmpty,
   selectEligibleOffer,

@@ -13,6 +13,8 @@ import type {
   RawBrandboard,
   RawClient,
   RawPhoto,
+  RawBriefRow,
+  BriefFacts,
   NormalizedOffer
 } from './types.ts';
 import {
@@ -20,6 +22,7 @@ import {
   type OperationalState,
   type GbpReadinessSignal
 } from './operational-state.ts';
+import { resolveBriefFacts } from './brief.ts';
 
 function toStringArray(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -137,6 +140,9 @@ export interface GbpContext {
   logo: LogoResolution;
   media: MediaResolution;
   operational: OperationalState;
+  /** F-095 — Scope-A facts from the approved brief (present-only). Empty `{}` when the
+   * client has no approved brief (R-03: honest degradation, no-regression). */
+  briefFacts: BriefFacts;
 }
 
 /**
@@ -149,8 +155,17 @@ export function readGbpContext(input: {
   brandboard: RawBrandboard;
   photos?: RawPhoto[];
   operationalSignal?: GbpReadinessSignal | null;
+  /** F-095 — approved brief row (or null). Threaded through to `briefFacts` (R-01/R-03). */
+  brief?: RawBriefRow | null;
 }): GbpContext {
-  const { client, offer, brandboard, photos = [], operationalSignal } = input;
+  const {
+    client,
+    offer,
+    brandboard,
+    photos = [],
+    operationalSignal,
+    brief
+  } = input;
   return {
     client,
     offer: normalizeOffer(offer),
@@ -161,6 +176,8 @@ export function readGbpContext(input: {
     },
     logo: resolveLogo(brandboard),
     media: resolveMedia(photos),
-    operational: readOperationalStateGbp(operationalSignal)
+    operational: readOperationalStateGbp(operationalSignal),
+    // R-03/R-11: absent brief -> `{}`, no-regression (section omitted downstream).
+    briefFacts: resolveBriefFacts(brief ?? null)
   };
 }
