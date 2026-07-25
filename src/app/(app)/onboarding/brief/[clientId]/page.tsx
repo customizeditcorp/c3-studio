@@ -380,12 +380,16 @@ export default function BriefPage() {
   });
   const [generatingPersona, setGeneratingPersona] = useState(false);
   const [approvingPersona, setApprovingPersona] = useState(false);
+  // F-108 R-07 — mirror de `savingDraft` del brief para la pestaña Persona.
+  const [savingDraftPersona, setSavingDraftPersona] = useState(false);
 
   // OFV
   const [ofvRecord, setOfvRecord] = useState<ContentRecord | null>(null);
   const [ofvFields, setOfvFields] = useState<OFVFields>({ ...emptyOFV });
   const [generatingOfv, setGeneratingOfv] = useState(false);
   const [approvingOfv, setApprovingOfv] = useState(false);
+  // F-108 R-07 — mirror de `savingDraft` del brief para la pestaña OFV.
+  const [savingDraftOfv, setSavingDraftOfv] = useState(false);
 
   useEffect(() => {
     if (!userLoading && tenantId && clientId) void loadData();
@@ -710,25 +714,104 @@ export default function BriefPage() {
     }
   };
 
+  const handleSaveDraftPersona = async () => {
+    // F-108 R-01/R-03 — espejo de `handleSaveDraft` del brief: si no hay fila,
+    // se CREA (insert-on-first-save) para poder guardar sin generar con AI.
+    // NO early-return por record; solo guard de sesión.
+    if (!tenantId) return;
+    setSavingDraftPersona(true);
+    try {
+      // F-108 R-08 — `buyer_personas` tiene columna `raw_text` (homólogo del
+      // brief) → payload con la columna sincronizada vía buildBriefWritePayload.
+      // `PersonaFields` no tiene index signature → se adapta al genérico de
+      // `fieldsToContent` (Record<string,string>); runtime = Object.entries, ok.
+      const payload = buildBriefWritePayload(
+        fieldsToContent(personaFields as unknown as Record<string, string>),
+        { status: 'draft' }
+      );
+      if (personaRecord) {
+        // F-108 R-03 — update-in-place (conserva id).
+        await supabase
+          .from('buyer_personas')
+          .update({ content: payload.content, raw_text: payload.raw_text })
+          .eq('id', personaRecord.id);
+      } else {
+        // F-108 R-01 — insert-on-first-save (rama sin `personaRecord`).
+        const { data } = await supabase
+          .from('buyer_personas')
+          .insert({
+            client_id: clientId,
+            prompt_version_id: null, // F-108 R-10 — persona manual, sin prompt_version
+            content: payload.content,
+            raw_text: payload.raw_text,
+            status: payload.status,
+            version: payload.version
+          })
+          .select('id, content, status, created_at')
+          .single();
+        if (data) setPersonaRecord(data as ContentRecord); // subsecuentes = update (R-03)
+      }
+      toast.success('Borrador guardado');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Error desconocido';
+      toast.error(`Error al guardar: ${msg}`);
+    } finally {
+      setSavingDraftPersona(false);
+    }
+  };
+
   const handleApprovePersona = async () => {
-    if (!personaRecord || !tenantId || !user) return;
+    // F-108 R-04/R-06 — ya no early-return por `!personaRecord`: si no hay fila,
+    // se CREA directamente `approved` (aprobar sin generar con AI).
+    if (!tenantId || !user) return;
     setApprovingPersona(true);
     try {
-      await supabase
-        .from('buyer_personas')
-        .update({ status: 'approved', content: fieldsToContent(personaFields) })
-        .eq('id', personaRecord.id);
-      setPersonaRecord((prev) =>
-        prev ? { ...prev, status: 'approved' } : prev
-      );
-      await logActivity({
-        tenantId,
-        userId: user.id,
-        action: 'persona_approved',
-        entityType: 'buyer_persona',
-        entityId: personaRecord.id,
-        clientId
+      // F-108 R-08 — payload con la columna `raw_text` sincronizada.
+      const payload = buildBriefWritePayload(fieldsToContent(personaFields), {
+        status: 'approved'
       });
+      let entityId: string | undefined = personaRecord?.id;
+      if (personaRecord) {
+        await supabase
+          .from('buyer_personas')
+          .update({
+            status: 'approved',
+            content: payload.content,
+            raw_text: payload.raw_text
+          })
+          .eq('id', personaRecord.id);
+        setPersonaRecord((prev) =>
+          prev ? { ...prev, status: 'approved' } : prev
+        );
+      } else {
+        // F-108 R-04 — insert-on-first-save (rama sin `personaRecord`).
+        const { data } = await supabase
+          .from('buyer_personas')
+          .insert({
+            client_id: clientId,
+            prompt_version_id: null, // F-108 R-10 — persona manual, sin prompt_version
+            content: payload.content,
+            raw_text: payload.raw_text,
+            status: payload.status,
+            version: payload.version
+          })
+          .select('id, content, status, created_at')
+          .single();
+        if (data) {
+          entityId = (data as ContentRecord).id;
+          setPersonaRecord(data as ContentRecord); // subsecuentes = update (R-03)
+        }
+      }
+      if (entityId) {
+        await logActivity({
+          tenantId,
+          userId: user.id,
+          action: 'persona_approved',
+          entityType: 'buyer_persona',
+          entityId,
+          clientId
+        });
+      }
       toast.success('Buyer Persona aprobada');
     } catch {
       toast.error('Error al aprobar');
@@ -777,30 +860,93 @@ export default function BriefPage() {
     }
   };
 
-  const handleApproveOFV = async () => {
-    if (!ofvRecord || !tenantId || !user) return;
-    setApprovingOfv(true);
+  const handleSaveDraftOFV = async () => {
+    // F-108 R-02/R-03 — espejo de `handleSaveDraft` del brief con los helpers
+    // F-107 (single-source content + columnas planas). NO early-return por record.
+    if (!tenantId) return;
+    setSavingDraftOfv(true);
     try {
-      // F-107 R-05 — single-source: derivar content alineado al schema (adaptador
-      // DT-01) y proyectar las columnas planas/jsonb desde el mismo helper que usa
-      // el route. El `update` persiste `content` Y columnas sincronizadas (antes
-      // escribía solo `content` → la edición era cosmética). status/gating intactos.
+      // F-108 R-08 — single-source: content Y columnas planas nunca divergen.
       const { columns, content: ofvContent } = buildOfvWritePayload(
         ofvFieldsToContent(ofvFields)
       );
-      await supabase
-        .from('offers')
-        .update({ status: 'approved', content: ofvContent, ...columns })
-        .eq('id', ofvRecord.id);
-      setOfvRecord((prev) => (prev ? { ...prev, status: 'approved' } : prev));
-      await logActivity({
-        tenantId,
-        userId: user.id,
-        action: 'offer_approved',
-        entityType: 'offer',
-        entityId: ofvRecord.id,
-        clientId
-      });
+      if (ofvRecord) {
+        // F-108 R-03 — update-in-place (conserva id).
+        await supabase
+          .from('offers')
+          .update({ content: ofvContent, ...columns })
+          .eq('id', ofvRecord.id);
+      } else {
+        // F-108 R-02 — insert-on-first-save (rama sin `ofvRecord`).
+        // R-11 — la FK a la persona queda null (nullable; FK-linking = F-109).
+        const { data } = await supabase
+          .from('offers')
+          .insert({
+            client_id: clientId,
+            prompt_version_id: null, // F-108 R-10 — OFV manual, sin prompt_version
+            content: ofvContent,
+            ...columns,
+            status: 'draft',
+            version: 1
+          })
+          .select('id, content, status, created_at')
+          .single();
+        if (data) setOfvRecord(data as ContentRecord); // subsecuentes = update (R-03)
+      }
+      toast.success('Borrador guardado');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Error desconocido';
+      toast.error(`Error al guardar: ${msg}`);
+    } finally {
+      setSavingDraftOfv(false);
+    }
+  };
+
+  const handleApproveOFV = async () => {
+    // F-108 R-05/R-06 — sin early-return por `!ofvRecord`: crea-y-aprueba si no hay fila.
+    if (!tenantId || !user) return;
+    setApprovingOfv(true);
+    try {
+      // F-107 R-05 — single-source: content Y columnas planas sincronizadas.
+      const { columns, content: ofvContent } = buildOfvWritePayload(
+        ofvFieldsToContent(ofvFields)
+      );
+      let entityId: string | undefined = ofvRecord?.id;
+      if (ofvRecord) {
+        await supabase
+          .from('offers')
+          .update({ status: 'approved', content: ofvContent, ...columns })
+          .eq('id', ofvRecord.id);
+        setOfvRecord((prev) => (prev ? { ...prev, status: 'approved' } : prev));
+      } else {
+        // F-108 R-05 — insert-on-first-save; R-11 FK persona queda null (F-109).
+        const { data } = await supabase
+          .from('offers')
+          .insert({
+            client_id: clientId,
+            prompt_version_id: null, // F-108 R-10 — OFV manual, sin prompt_version
+            content: ofvContent,
+            ...columns,
+            status: 'approved',
+            version: 1
+          })
+          .select('id, content, status, created_at')
+          .single();
+        if (data) {
+          entityId = (data as ContentRecord).id;
+          setOfvRecord(data as ContentRecord); // subsecuentes = update (R-03)
+        }
+      }
+      if (entityId) {
+        await logActivity({
+          tenantId,
+          userId: user.id,
+          action: 'offer_approved',
+          entityType: 'offer',
+          entityId,
+          clientId
+        });
+      }
       toast.success('OFV aprobado');
     } catch {
       toast.error('Error al aprobar');
@@ -1716,6 +1862,23 @@ export default function BriefPage() {
                       '✨ Generar Buyer Persona con AI'
                     )}
                   </Button>
+                  {/* F-108 R-07 — visible sin generar (no gateado por personaRecord). */}
+                  {!personaApproved && (
+                    <Button
+                      variant='outline'
+                      onClick={handleSaveDraftPersona}
+                      disabled={savingDraftPersona || generatingPersona}
+                    >
+                      {savingDraftPersona ? (
+                        <>
+                          <Icons.spinner className='mr-2 h-4 w-4 animate-spin' />
+                          Guardando...
+                        </>
+                      ) : (
+                        'Guardar borrador'
+                      )}
+                    </Button>
+                  )}
                   {personaRecord && personaRecord.status !== 'approved' && (
                     <Button
                       onClick={handleApprovePersona}
@@ -1897,6 +2060,23 @@ export default function BriefPage() {
                       '✨ Generar OFV con AI'
                     )}
                   </Button>
+                  {/* F-108 R-07 — visible sin generar (no gateado por ofvRecord). */}
+                  {!ofvApproved && (
+                    <Button
+                      variant='outline'
+                      onClick={handleSaveDraftOFV}
+                      disabled={savingDraftOfv || generatingOfv}
+                    >
+                      {savingDraftOfv ? (
+                        <>
+                          <Icons.spinner className='mr-2 h-4 w-4 animate-spin' />
+                          Guardando...
+                        </>
+                      ) : (
+                        'Guardar borrador'
+                      )}
+                    </Button>
+                  )}
                   {ofvRecord && ofvRecord.status !== 'approved' && (
                     <Button
                       onClick={handleApproveOFV}

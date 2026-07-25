@@ -266,7 +266,9 @@ test('T-09 handleApproveOFV: el update ya NO es content-only (añade ...columns)
 });
 
 test('T-09 handleApproveOFV: status "approved" sigue presente (no-regresión R-11)', () => {
-  const body = sliceFrom(pageSrc, 'const handleApproveOFV');
+  // F-108 amplió handleApproveOFV (insert-on-first-save); el logActivity quedó
+  // más abajo → se amplía la ventana de slice (la aserción no cambia).
+  const body = sliceFrom(pageSrc, 'const handleApproveOFV', 1800);
   assert.match(body, /status:\s*'approved'/);
   assert.match(body, /logActivity\(/);
 });
