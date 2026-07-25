@@ -88,7 +88,7 @@ export interface FieldText {
 // Ruleset (R-11) — versioned, serializable constant
 // ---------------------------------------------------------------------------
 
-export const RULESET_VERSION = '1.0.0';
+export const RULESET_VERSION = '1.1.0';
 
 /** output_type patterns considered "ad copy" for scoped rules (emojis — R-09). */
 export const ADS_SCOPE: string[] = ['campaign_copy', 'gbp_*'];
@@ -149,6 +149,34 @@ const BUZZWORDS: string[] = [
   'streamline operations'
 ];
 
+/**
+ * Spanish buzzword banlist (F-103 / DT-03, design.md §5). Multi-word or otherwise
+ * distinctive terms → safe under the same case-insensitive substring match as the
+ * English list, with no collisions against legitimate domain words (R-12).
+ */
+const BUZZWORDS_ES: string[] = [
+  'impulsa tu',
+  'eleva tu',
+  'potencia tu',
+  'desbloquea',
+  'aprovecha el poder',
+  'de vanguardia',
+  'de última generación',
+  'de última tecnología',
+  'revolucionario',
+  'innovador',
+  'que cambia las reglas del juego',
+  'de otro nivel',
+  'de clase mundial',
+  'líder en la industria',
+  'solución integral',
+  'llave en mano',
+  'sin igual',
+  'optimiza tu flujo de trabajo',
+  'agiliza tus operaciones',
+  'de primera'
+];
+
 /** term -> [category, message]; categories split exaggeration vs absolute per prior art intent. */
 const EXAGGERATIONS: Array<[string, RuleCategory, string]> = [
   ['top 1', 'exaggeration', "Claiming 'top 1' without proof"],
@@ -163,6 +191,40 @@ const EXAGGERATIONS: Array<[string, RuleCategory, string]> = [
   ['100% guaranteed', 'exaggeration', 'Unrealistic guarantee'],
   ['perfect', 'absolute', "Absolute claim 'perfect'"],
   ['zero defects', 'exaggeration', 'Unrealistic zero-defects claim']
+];
+
+/**
+ * Spanish exaggerations / absolutes (F-103 / DT-03, design.md §5). Same tuple shape
+ * as EXAGGERATIONS; each term declares whether it is `exaggeration` or `absolute`.
+ * Multi-word / distinctive terms only → literal substring match is collision-safe.
+ * NOTE (R-12): the single-word absolute `perfecto` is intentionally NOT here — it is
+ * emitted as a `\b`-anchored regex rule below to avoid the `perfecto` ⊂ `imperfecto`
+ * false positive. `todo el mundo` is used instead of the bare `todos`, which would
+ * collide as a substring of `métodos` (the domain's central word) — a collision the
+ * ASCII `\b` cannot save, because the accented `é` forms a false word boundary.
+ */
+const EXAGGERATIONS_ES: Array<[string, RuleCategory, string]> = [
+  ['el mejor', 'exaggeration', "Superlativo inverificable: 'el mejor'"],
+  ['la mejor', 'exaggeration', "Superlativo inverificable: 'la mejor'"],
+  ['el número 1', 'exaggeration', "Afirmación 'el número 1' sin prueba"],
+  ['el número uno', 'exaggeration', "Afirmación 'el número uno' sin prueba"],
+  ['el peor', 'exaggeration', "Superlativo exagerado: 'el peor'"],
+  ['garantizado 100%', 'exaggeration', 'Garantía poco realista'],
+  ['100% garantizado', 'exaggeration', 'Garantía poco realista'],
+  [
+    'cero defectos',
+    'exaggeration',
+    "Afirmación poco realista: 'cero defectos'"
+  ],
+  [
+    'el líder',
+    'exaggeration',
+    "Afirmación de liderazgo inverificable: 'el líder'"
+  ],
+  ['todo el mundo', 'absolute', "Afirmación absoluta: 'todo el mundo'"],
+  ['nadie', 'absolute', "Afirmación absoluta: 'nadie'"],
+  ['siempre', 'absolute', "Afirmación absoluta: 'siempre'"],
+  ['nunca', 'absolute', "Afirmación absoluta: 'nunca'"]
 ];
 
 function slug(term: string): string {
@@ -205,6 +267,28 @@ export const ANTI_AI_RULES: AntiAiRule[] = [
   ...EXAGGERATIONS.map(([term, category, message]) =>
     literalRule(`${category}.${slug(term)}`, category, 'issue', term, message)
   ),
+  // --- Spanish AI buzzwords (issue) — R-01/R-02 (F-103)
+  ...BUZZWORDS_ES.map((w) =>
+    literalRule(
+      `buzzword.${slug(w)}`,
+      'buzzword',
+      'issue',
+      w,
+      `AI buzzword detected: '${w}'`
+    )
+  ),
+  // --- Spanish exaggerations / absolutes (issue) — R-01/R-03 (F-103)
+  ...EXAGGERATIONS_ES.map(([term, category, message]) =>
+    literalRule(`${category}.${slug(term)}`, category, 'issue', term, message)
+  ),
+  // --- Spanish 'perfecto' absolute via \b regex (R-12: avoids `imperfecto`) — F-103
+  {
+    id: 'absolute.perfecto',
+    category: 'absolute',
+    severity: 'issue',
+    match: { kind: 'regex', source: '\\bperfect[oa]s?\\b', flags: 'gi' },
+    message: "Afirmación absoluta: 'perfecto'"
+  },
   // --- "#1" without proof, excluding license numbers (issue) — R-04
   {
     id: 'exaggeration.number-one',
@@ -288,6 +372,21 @@ export const ANTI_AI_RULES: AntiAiRule[] = [
       flags: 'gi'
     },
     message: 'Vague superlative without a supporting number',
+    guard: { requireNoAdjacentDigit: true }
+  },
+  // --- Vague Spanish superlatives without numbers (warning) — R-01/R-04 (F-103).
+  // Single \b-anchored regex mirroring superlative.vague; optional accent/gender/plural.
+  {
+    id: 'superlative.vague-es',
+    category: 'superlative',
+    severity: 'warning',
+    match: {
+      kind: 'regex',
+      source:
+        '\\b(incre[íi]bles?|asombros[oa]s?|espectacular(?:es)?|inigualables?|maravillos[oa]s?|extraordinari[oa]s?)\\b',
+      flags: 'gi'
+    },
+    message: 'Superlativo vago en español sin un número de respaldo',
     guard: { requireNoAdjacentDigit: true }
   },
   // --- Ellipsis in the middle of the text (warning) — R-08
