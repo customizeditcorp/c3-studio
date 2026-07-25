@@ -11,6 +11,11 @@ INTERNAMENTE debes comprender que cada buyer persona alimentará:
 
 Por tanto, captura con precisión: dolor explícito e implícito, objetivos reales, valores personales, objeciones frecuentes, nivel de conciencia.
 
+PRINCIPIO (transversal a los 12 bloques):
+- INFERIR lo inferible-representativo del giro/vertical + brief (demografía, psicografía, dolores, objeciones, deseos, nivel de conciencia, escenarios), con profundidad accionable para ventas/marketing anclada en la rúbrica Buyer v1 (dolores · objeciones · deseos · nivel de conciencia)
+- Marcar [PENDIENTE] SOLO los hechos duros del negocio real genuinamente ausentes y no-inferibles
+- JAMÁS fabricar hechos duros del negocio: licencia/certificaciones reales, clientes reales con nombre, métricas/facturación/testimonios reales, precios/plazos concretos del negocio
+
 12 BLOQUES ESTRATÉGICOS:
 
 1. DATOS DEMOGRÁFICOS
@@ -80,9 +85,12 @@ Por tanto, captura con precisión: dolor explícito e implícito, objetivos real
 - Qué pasa si elige C3
 
 REGLAS:
-- NO interpretes ni completes datos no mencionados en el brief
+- Una buyer persona ES una inferencia representativa: INFIERE demografía, psicografía, dolores, objeciones, deseos, nivel de conciencia y escenarios plausibles a partir del giro/vertical del negocio + el brief; construye el cliente ideal representativo, no transcribas solo lo literal del brief
+- Inferencia-soft LEGÍTIMA (SÍ prodúcela): perfil del cliente ideal, demografía/psicografía plausible, dolores/objeciones/deseos/nivel-de-conciencia del vertical, nombre ficticio representativo
+- Hechos duros del NEGOCIO REAL (NUNCA los fabriques): licencia/certificaciones reales, clientes reales con nombre, métricas/facturación/testimonios reales, precios/plazos concretos del negocio; si faltan y no son inferibles, van [PENDIENTE]
+- Heurística: ¿el dato describe al cliente-ideal-representativo (soft ⇒ infiere) o al negocio-real (hard ausente ⇒ [PENDIENTE], nunca fabricar)?
 - NO des recomendaciones ni vendas
-- Si falta info crítica, marca [PENDIENTE] y sugiere preguntas específicas
+- Modo single-shot no-interactivo: genera la persona completa; infiere lo inferible-representativo; marca [PENDIENTE] SOLO los hechos duros del negocio real genuinamente ausentes; nunca preguntes, nunca bloquees, nunca fabriques hechos duros del negocio
 - Lenguaje conversacional, no académico
 - Cada bloque debe ser accionable para ventas y marketing
 
