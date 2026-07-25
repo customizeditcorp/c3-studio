@@ -186,9 +186,20 @@ test('T-11 aislamiento: los approve nuevos actualizan por .eq(id) y conservan st
 /*  T-12 — Frontera F-109 + sin DDL (R-13/R-14)                      */
 /* ================================================================== */
 
-test('T-12 F-108 NO introduce approved_by/approved_at en los handlers nuevos (frontera F-109, R-13)', () => {
-  const persona = sliceFrom(pageSrc, 'const handleSaveDraftPersona', 3400);
-  const ofv = sliceFrom(pageSrc, 'const handleSaveDraftOFV', 3400);
+test('T-12 los handlers SAVE-DRAFT no sellan approved_by/at (save-draft libre; R-13)', () => {
+  // Intent original: los handlers nuevos de F-108 no cruzan la frontera F-109.
+  // F-109 cruzó esa frontera SOLO en los approve handlers; los SAVE-DRAFT siguen
+  // libres (no sellan approved_by/at). Se acota la ventana al cuerpo del propio
+  // save-draft (hasta el siguiente `const handle`) — la ventana fija de 3400
+  // sangraba a los approve handlers adyacentes, que ahora SÍ sellan (F-109).
+  const upToNextHandler = (marker: string): string => {
+    const s = pageSrc.indexOf(marker);
+    assert.ok(s >= 0, `no se encontró: ${marker}`);
+    const n = pageSrc.indexOf('const handle', s + marker.length);
+    return pageSrc.slice(s, n > s ? n : s + 1600);
+  };
+  const persona = upToNextHandler('const handleSaveDraftPersona');
+  const ofv = upToNextHandler('const handleSaveDraftOFV');
   assert.doesNotMatch(persona, /approved_by|approved_at/);
   assert.doesNotMatch(ofv, /approved_by|approved_at/);
 });

@@ -70,9 +70,10 @@ test('T-10/T-11 brief: existe el espejo mirrorCityStateToClient hacia clients', 
 test('T-10/T-11 brief: handleApproveBrief espeja city/state a clients', () => {
   const idx = briefSrc.indexOf('const handleApproveBrief');
   assert.ok(idx > 0);
-  // F-097: los handlers crecieron (insert-on-first-save + raw_text sync) →
-  // ventana ampliada para seguir capturando mirrorCityStateToClient. Intent intacto.
-  const body = briefSrc.slice(idx, idx + 2200);
+  // F-097/F-109: los handlers crecieron (insert-on-first-save + raw_text sync +
+  // guard de aprobación + approved_by/at) → ventana ampliada para seguir
+  // capturando mirrorCityStateToClient. Intent intacto.
+  const body = briefSrc.slice(idx, idx + 2600);
   assert.match(body, /await mirrorCityStateToClient\(\)/);
   // Sigue conservando el narrativo en briefs.content (no rompe el flujo).
   assert.match(body, /\.from\('briefs'\)/);

@@ -266,9 +266,10 @@ test('T-09 handleApproveOFV: el update ya NO es content-only (añade ...columns)
 });
 
 test('T-09 handleApproveOFV: status "approved" sigue presente (no-regresión R-11)', () => {
-  // F-108 amplió handleApproveOFV (insert-on-first-save); el logActivity quedó
-  // más abajo → se amplía la ventana de slice (la aserción no cambia).
-  const body = sliceFrom(pageSrc, 'const handleApproveOFV', 1800);
+  // F-108/F-109 ampliaron handleApproveOFV (insert-on-first-save + guard +
+  // approved_by/at); el logActivity quedó más abajo → ventana ampliada (la
+  // aserción no cambia).
+  const body = sliceFrom(pageSrc, 'const handleApproveOFV', 2400);
   assert.match(body, /status:\s*'approved'/);
   assert.match(body, /logActivity\(/);
 });
@@ -279,7 +280,9 @@ test('T-09 handleApproveOFV: status "approved" sigue presente (no-regresión R-1
 /* ================================================================== */
 
 test('T-10 route rama ofv: invoca buildOfvWritePayload (R-06)', () => {
-  const body = sliceFrom(routeSrc, "step === 'ofv' && parsedContent", 1400);
+  // F-109: el FK-linking persona_id (prefer approved + fallback) añadió líneas
+  // antes de buildOfvWritePayload → ventana ampliada. Intent intacto.
+  const body = sliceFrom(routeSrc, "step === 'ofv' && parsedContent", 1900);
   assert.match(
     body,
     /Object\.assign\(\s*insertData,\s*buildOfvWritePayload\(parsedContent\)\.columns\s*\)/
@@ -291,7 +294,9 @@ test('T-10 route: ya NO existe el bucle inline `for (const k of [ ... big_promis
 });
 
 test('T-10 route rama ofv: attachValidation + attachMethodGrounding + persona_id intactos (R-10/R-11)', () => {
-  const body = sliceFrom(routeSrc, "step === 'ofv' && parsedContent", 1900);
+  // F-109: FK-linking persona_id (prefer approved) creció la rama → ventana
+  // ampliada. persona_id = lp.id y el 422 siguen intactos.
+  const body = sliceFrom(routeSrc, "step === 'ofv' && parsedContent", 2400);
   assert.match(body, /attachValidation\(/);
   assert.match(body, /insertData\.persona_id = lp\.id/);
   // attachMethodGrounding se aplica justo después de la rama (R-10)
@@ -305,7 +310,9 @@ test('T-10 route rama ofv: attachValidation + attachMethodGrounding + persona_id
 /* ================================================================== */
 
 test('T-11 needsOffer: usa normalizeOffer (read content-first, R-07)', () => {
-  const body = sliceFrom(routeSrc, 'if (needsOffer)', 900);
+  // F-109: el tie-break (pickCanonicalOffer sobre approved) añadió líneas antes
+  // de normalizeOffer → ventana ampliada. La cadena normalizada intacta.
+  const body = sliceFrom(routeSrc, 'if (needsOffer)', 1400);
   assert.match(body, /normalizeOffer\(offer as RawOfferRow\)/);
   // la cadena se construye desde los campos normalizados (`o.`), no crudos
   assert.match(body, /o\.big_promise/);
@@ -329,10 +336,18 @@ test('T-12 normalizeOffer: conserva el orden plana-first (pickString(flat, conte
   assert.match(body, /pickString\(offer\.vehicle_name,\s*c\.vehicle_name\)/);
 });
 
-test('T-12 F-107 NO escribe approved_by/approved_at ni gating (frontera F-109)', () => {
-  const body = sliceFrom(pageSrc, 'const handleApproveOFV');
-  assert.doesNotMatch(body, /approved_by/);
-  assert.doesNotMatch(body, /approved_at/);
+test('T-12 F-107 write-path single-source intacto; F-109 cruzó la frontera (approved_by/at)', () => {
+  // Antes esta prueba asertaba la AUSENCIA de approved_by/at como "frontera F-109".
+  // F-109 cruza esa frontera legítimamente: ahora el approve SÍ sella approved_by/at.
+  // Lo que F-107 debe preservar (no-regresión) es el write-path single-source:
+  // el approve escribe vía el helper (content Y columnas sincronizadas).
+  const body = sliceFrom(pageSrc, 'const handleApproveOFV', 2400);
+  assert.match(
+    body,
+    /buildOfvWritePayload\(\s*ofvFieldsToContent\(ofvFields\)/
+  );
+  // F-109 (no-regresión de F-107): el sello de aprobación ya presente.
+  assert.match(body, /approved_by:\s*user\.id/);
 });
 
 test('T-12 SIN DDL: el helper no toca migraciones ni SQL', () => {

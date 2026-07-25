@@ -20,6 +20,9 @@ import {
   buildOfvWritePayload,
   ofvFieldsToContent
 } from '@/lib/offers/write-path';
+// F-109 — (c) guard de aprobación: bloquea aprobar vacío / esencialmente-todo-
+// placeholder. NO bloquea `[PENDIENTE]` legítimo (invariante F-104/F-106).
+import { assessApproval } from '@/lib/onboarding/approval-guard';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
@@ -573,12 +576,21 @@ export default function BriefPage() {
     // F-097 R-02/R-04 — ya no early-return por `!briefRecord`: si no hay fila,
     // se CREA directamente `approved` (aprobar sin generar con AI).
     if (!tenantId || !user) return;
+    // F-109 R-05/R-06 — guard de aprobación ANTES de escribir `status:'approved'`.
+    // Bloquea vacío / esencialmente-todo-placeholder; NO bloquea `[PENDIENTE]`
+    // legítimo (F-104/F-106). El save-draft NO pasa por aquí.
+    if (!assessApproval(briefFields).ok) {
+      toast.error('No se puede aprobar: contenido vacío o incompleto');
+      return;
+    }
     setApprovingBrief(true);
     try {
       // F-097 R-10/R-11 — payload con la columna `raw_text` sincronizada.
       const payload = buildBriefWritePayload(fieldsToContent(briefFields), {
         status: 'approved'
       });
+      // F-109 R-07 — sello de aprobación (columnas nullable ya existentes, SIN DDL).
+      const approvedAt = new Date().toISOString();
       let entityId: string | undefined = briefRecord?.id;
       if (briefRecord) {
         await supabase
@@ -586,7 +598,9 @@ export default function BriefPage() {
           .update({
             status: 'approved',
             content: payload.content,
-            raw_text: payload.raw_text
+            raw_text: payload.raw_text,
+            approved_by: user.id, // F-109 R-07
+            approved_at: approvedAt // F-109 R-07
           })
           .eq('id', briefRecord.id);
         setBriefRecord((prev) =>
@@ -602,7 +616,9 @@ export default function BriefPage() {
             content: payload.content,
             raw_text: payload.raw_text,
             status: payload.status,
-            version: payload.version
+            version: payload.version,
+            approved_by: user.id, // F-109 R-07
+            approved_at: approvedAt // F-109 R-07
           })
           .select('id, content, status, created_at')
           .single();
@@ -764,12 +780,19 @@ export default function BriefPage() {
     // F-108 R-04/R-06 — ya no early-return por `!personaRecord`: si no hay fila,
     // se CREA directamente `approved` (aprobar sin generar con AI).
     if (!tenantId || !user) return;
+    // F-109 R-05/R-06 — guard de aprobación ANTES de escribir `status:'approved'`.
+    if (!assessApproval(personaFields).ok) {
+      toast.error('No se puede aprobar: contenido vacío o incompleto');
+      return;
+    }
     setApprovingPersona(true);
     try {
       // F-108 R-08 — payload con la columna `raw_text` sincronizada.
       const payload = buildBriefWritePayload(fieldsToContent(personaFields), {
         status: 'approved'
       });
+      // F-109 R-07 — sello de aprobación (columnas nullable ya existentes, SIN DDL).
+      const approvedAt = new Date().toISOString();
       let entityId: string | undefined = personaRecord?.id;
       if (personaRecord) {
         await supabase
@@ -777,7 +800,9 @@ export default function BriefPage() {
           .update({
             status: 'approved',
             content: payload.content,
-            raw_text: payload.raw_text
+            raw_text: payload.raw_text,
+            approved_by: user.id, // F-109 R-07
+            approved_at: approvedAt // F-109 R-07
           })
           .eq('id', personaRecord.id);
         setPersonaRecord((prev) =>
@@ -793,7 +818,9 @@ export default function BriefPage() {
             content: payload.content,
             raw_text: payload.raw_text,
             status: payload.status,
-            version: payload.version
+            version: payload.version,
+            approved_by: user.id, // F-109 R-07
+            approved_at: approvedAt // F-109 R-07
           })
           .select('id, content, status, created_at')
           .single();
@@ -905,17 +932,30 @@ export default function BriefPage() {
   const handleApproveOFV = async () => {
     // F-108 R-05/R-06 — sin early-return por `!ofvRecord`: crea-y-aprueba si no hay fila.
     if (!tenantId || !user) return;
+    // F-109 R-05/R-06 — guard de aprobación ANTES de escribir `status:'approved'`.
+    if (!assessApproval(ofvFields).ok) {
+      toast.error('No se puede aprobar: contenido vacío o incompleto');
+      return;
+    }
     setApprovingOfv(true);
     try {
       // F-107 R-05 — single-source: content Y columnas planas sincronizadas.
       const { columns, content: ofvContent } = buildOfvWritePayload(
         ofvFieldsToContent(ofvFields)
       );
+      // F-109 R-07 — sello de aprobación (columnas nullable ya existentes, SIN DDL).
+      const approvedAt = new Date().toISOString();
       let entityId: string | undefined = ofvRecord?.id;
       if (ofvRecord) {
         await supabase
           .from('offers')
-          .update({ status: 'approved', content: ofvContent, ...columns })
+          .update({
+            status: 'approved',
+            content: ofvContent,
+            ...columns,
+            approved_by: user.id, // F-109 R-07
+            approved_at: approvedAt // F-109 R-07
+          })
           .eq('id', ofvRecord.id);
         setOfvRecord((prev) => (prev ? { ...prev, status: 'approved' } : prev));
       } else {
@@ -928,7 +968,9 @@ export default function BriefPage() {
             content: ofvContent,
             ...columns,
             status: 'approved',
-            version: 1
+            version: 1,
+            approved_by: user.id, // F-109 R-07
+            approved_at: approvedAt // F-109 R-07
           })
           .select('id, content, status, created_at')
           .single();

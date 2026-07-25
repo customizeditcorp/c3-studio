@@ -35,6 +35,12 @@ import { resolveWriteMode } from '@/lib/briefs/write-path';
 // al bucle inline previo, R-09) reusado por route + UI. `normalizeOffer` da el
 // read-fallback content-first en el needsOffer de generate-content (R-07/R-08).
 import { buildOfvWritePayload } from '@/lib/offers/write-path';
+// F-109 — (d) tie-break determinista del consumo de offers approved: la OFV real
+// gana sobre la vacía-shadow (JD Valley, 2 approved v1) SIN borrar ninguna fila.
+import {
+  pickCanonicalOffer,
+  type CanonicalOfferRow
+} from '@/lib/offers/select-canonical';
 import { normalizeOffer } from '@/lib/gbp-slice/context';
 import type { RawOfferRow } from '@/lib/gbp-slice/types';
 // F-102 — seams puros: temperature controlada + parse con señal de usabilidad (`ok`)
@@ -283,14 +289,18 @@ export async function POST(request: NextRequest) {
           (persona.raw_text || JSON.stringify(persona.content));
     }
     if (needsOffer) {
-      const { data: offer } = await supabase
+      // F-109 R-11 — traer TODOS los approved candidatos (sin `limit(1)`) y elegir
+      // la canónica con `pickCanonicalOffer` (version desc → contenido-no-vacío →
+      // updated_at desc → id): la OFV real gana a la vacía-shadow, sin borrar nada.
+      const { data: offerRows } = await supabase
         .from('offers')
         .select('*')
         .eq('client_id', client_id)
         .eq('status', 'approved')
-        .order('version', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .order('version', { ascending: false });
+      const offer = pickCanonicalOffer(
+        (offerRows ?? []) as (RawOfferRow & CanonicalOfferRow)[]
+      );
       if (offer) {
         // F-107 R-07/R-08 — read-fallback content-first: `normalizeOffer` hace
         // pickString(plana, content) → una edición almacenada en `content` deja
@@ -476,13 +486,26 @@ export async function POST(request: NextRequest) {
           insertData.raw_text = rawText;
         }
         if (step === 'ofv' && parsedContent) {
-          const { data: lp } = await supabase
+          // F-109 R-08 — preferir la buyer_persona `approved` del cliente para el
+          // FK-linking; solo si no existe ninguna approved, fallback (DT-04) a la
+          // última cualquier-status (preserva comportamiento previo = no-regresión).
+          let { data: lp } = await supabase
             .from('buyer_personas')
             .select('id')
             .eq('client_id', client_id)
-            .order('created_at', { ascending: false })
+            .eq('status', 'approved')
+            .order('version', { ascending: false })
             .limit(1)
             .maybeSingle();
+          if (!lp) {
+            ({ data: lp } = await supabase
+              .from('buyer_personas')
+              .select('id')
+              .eq('client_id', client_id)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle());
+          }
           if (!lp) {
             return NextResponse.json(
               {
@@ -518,13 +541,26 @@ export async function POST(request: NextRequest) {
           );
         }
         if (step === 'buyer_persona') {
-          const { data: lb } = await supabase
+          // F-109 R-09 — preferir el brief `approved` del cliente; fallback (DT-04)
+          // a la última cualquier-status. Sin approved ni fallback → brief_id no se
+          // setea (preserva el no-set previo, sin 422 aquí).
+          let { data: lb } = await supabase
             .from('briefs')
             .select('id')
             .eq('client_id', client_id)
-            .order('created_at', { ascending: false })
+            .eq('status', 'approved')
+            .order('version', { ascending: false })
             .limit(1)
             .maybeSingle();
+          if (!lb) {
+            ({ data: lb } = await supabase
+              .from('briefs')
+              .select('id')
+              .eq('client_id', client_id)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle());
+          }
           if (lb) insertData.brief_id = lb.id;
         }
         // F-065: append `content._method_grounding` (additive) AFTER F-064's
@@ -573,13 +609,29 @@ export async function POST(request: NextRequest) {
         // `shouldPersistGeneratedOutput` lo excluye: NO se crea la fila duplicada en
         // `generated_outputs` (home = `gbp_profiles`, escrito por `generate-gbp`).
         // `savedRecord` queda undefined → `saved: null` y sin activity_log de duplicado.
-        const { data: lo } = await supabase
+        // F-109 DT-06 — mismo shadow-risk que el consumo: preferir la OFV approved
+        // canónica (tie-break `pickCanonicalOffer`) para el `offer_id` de
+        // generated_outputs; solo si no hay approved, fallback a la última
+        // cualquier-status (preserva comportamiento previo = no-regresión).
+        const { data: approvedOffers } = await supabase
           .from('offers')
-          .select('id')
+          .select('id, version, content, big_promise, updated_at')
           .eq('client_id', client_id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+          .eq('status', 'approved')
+          .order('version', { ascending: false });
+        let offerId: string | null =
+          pickCanonicalOffer((approvedOffers ?? []) as CanonicalOfferRow[])
+            ?.id ?? null;
+        if (!offerId) {
+          const { data: lo } = await supabase
+            .from('offers')
+            .select('id')
+            .eq('client_id', client_id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          offerId = (lo?.id as string | undefined) ?? null;
+        }
         // F-064: anti-AI validation (detective, non-blocking). Extract the
         // generated_outputs-shape fields (content string leaves) and append
         // `content._validation`. is_valid=false does NOT abort/gate (R-14/R-15/R-16).
@@ -605,7 +657,7 @@ export async function POST(request: NextRequest) {
           .from('generated_outputs')
           .insert({
             client_id,
-            offer_id: lo?.id || null,
+            offer_id: offerId, // F-109 DT-06 — OFV approved canónica (fallback prev.)
             prompt_version_id: prompt.id,
             output_type: step,
             content: groundedContent,
