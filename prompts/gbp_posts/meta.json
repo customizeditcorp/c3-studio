@@ -1,0 +1,8 @@
+{
+  "step": "gbp_posts",
+  "methodology": "c3_sales_framework",
+  "vertical": null,
+  "validation_rules": null,
+  "version": 1,
+  "tenant": "__primary__"
+}
