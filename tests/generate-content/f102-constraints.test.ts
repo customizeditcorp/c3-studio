@@ -38,14 +38,17 @@ test('R-05 el user message conserva el keyword JSON', () => {
 
 /* ---- R-07: retry-once — a lo sumo 2 create() en el flujo, sin loop/backoff --------- */
 
-test('R-07 a lo sumo 2 openai.chat.completions.create (retry-once, no loop)', () => {
+test('R-07 create() acotado (retry-once por motivo, no loop)', () => {
   const matches = ROUTE.match(/openai\.chat\.completions\.create\(/g) ?? [];
+  // F-102 aporta 2 (call inicial + retry estructural); F-105 (R-05) añade UN tercer
+  // call-site: el retry-once dirigido de no-fabricación de prueba social en el branch `ofv`.
+  // Ambos retries son single-shot y ortogonales (motivos distintos), nunca un loop.
   assert.equal(
     matches.length,
-    2,
-    'esperaba exactamente 2 create() (call + retry)'
+    3,
+    'esperaba 3 create() (call + retry estructural F-102 + retry no-fabricación F-105)'
   );
-  // No hay bucle/backoff en torno al retry.
+  // No hay bucle/backoff en torno a ningún retry.
   assert.doesNotMatch(ROUTE, /for\s*\([^)]*retr/i);
   assert.doesNotMatch(ROUTE, /while\s*\([^)]*retr/i);
   assert.doesNotMatch(ROUTE, /setTimeout|backoff/i);
