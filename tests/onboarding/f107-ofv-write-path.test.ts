@@ -280,7 +280,7 @@ test('T-10 route rama ofv: invoca buildOfvWritePayload (R-06)', () => {
   const body = sliceFrom(routeSrc, "step === 'ofv' && parsedContent", 1400);
   assert.match(
     body,
-    /Object\.assign\(insertData,\s*buildOfvWritePayload\(parsedContent\)\.columns\)/
+    /Object\.assign\(\s*insertData,\s*buildOfvWritePayload\(parsedContent\)\.columns\s*\)/
   );
 });
 
