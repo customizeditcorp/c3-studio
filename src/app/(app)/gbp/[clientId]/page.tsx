@@ -64,6 +64,11 @@ import {
   GBP_CONTENT_STATUS_DRAFT,
   type GbpContentApprovalClient
 } from '@/lib/gbp-slice/content-status';
+// F-098 (R-12) — mensaje ES legible del warning de compliance (seam pura, testeable).
+import {
+  formatComplianceWarning,
+  type MissingFact
+} from '@/lib/gbp-slice/compliance';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -605,6 +610,18 @@ export default function GBPPage() {
         // R-05 — success: expose profile id, preview confirmation + link to /preview/[token].
         setGbpGenResult(result.data);
         toast.success('Perfil GBP generado. Revisa el preview.');
+        // F-098 (R-12) — warning transitorio no bloqueante: si tras el guard + retry-once
+        // la descripción omitió hechos concretos, avisar (toast + box ámbar más abajo).
+        // NO altera el éxito ni el link al preview.
+        if (result.data.compliance_warning) {
+          // The API boundary type (edge-functions) keeps `kind: string` loose; the pure
+          // seam narrows it to ComplianceFactKind — cast at the boundary (label/value only).
+          toast.warning(
+            formatComplianceWarning(
+              result.data.compliance_warning.missing as MissingFact[]
+            )
+          );
+        }
         await loadData(); // refresh so the new profile/asset status reflects immediately.
       } else {
         // R-06..R-10 — differentiated error by HTTP code / reason.
@@ -711,6 +728,28 @@ export default function GBPPage() {
                     >
                       Abrir preview →
                     </a>
+                  </div>
+                )}
+
+                {/* F-098 (R-12) — warning transitorio de compliance: box ámbar con los
+                    hechos concretos que la descripción generada omitió (tras retry-once).
+                    NO bloquea el éxito ni el link al preview; el warning no se persiste. */}
+                {gbpGenResult?.compliance_warning && (
+                  <div className='rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950'>
+                    <p className='font-medium text-amber-800 dark:text-amber-300'>
+                      La descripción generada no incluyó algunos hechos
+                      verificables
+                    </p>
+                    <ul className='mt-1 list-disc pl-5 text-xs text-amber-800 dark:text-amber-300'>
+                      {gbpGenResult.compliance_warning.missing.map((m) => (
+                        <li key={m.kind}>
+                          {m.label}: {m.value}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className='mt-2 text-xs text-amber-700 dark:text-amber-400'>
+                      Edítala y guarda antes de aprobar el contenido.
+                    </p>
                   </div>
                 )}
 

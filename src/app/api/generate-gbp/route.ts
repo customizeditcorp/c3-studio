@@ -37,7 +37,11 @@ import {
   GbpDomainError,
   ASSET_STATUS_ON_PREVIEW,
   SLICE_ASSET_TYPE,
-  resolveGbpTemperature // F-095 R-07/R-08
+  resolveGbpTemperature, // F-095 R-07/R-08
+  // F-098 — compliance-guard (verdad del output): guard puro + directiva de retry.
+  resolveComplianceFacts,
+  checkGbpFactCompliance,
+  buildComplianceRetryDirective
 } from '@/lib/gbp-slice';
 // F-089 R-06 — la regeneración repone `content_status='draft'`: el contenido nuevo
 // invalida cualquier aprobación previa (la aprobación siempre refleja el contenido actual).
@@ -292,6 +296,55 @@ export async function POST(request: NextRequest) {
     }
     profileRow.description = descGuard.value;
 
+    // --- F-098: compliance-guard (verdad del output) + retry-once dirigido ---
+    // Post-guard (F-084), PRE-persist. Verifica que la `description` contenga los hechos
+    // CONCRETOS presentes en ctx (ciudad + licencia# + años#, match normalizado; NO prosa
+    // blanda). Si falta un must-have → 1 retry con instrucción dirigida (idioma sigue al
+    // cierre, F-081); si el retry es inválido/blob → conserva el original (R-09); si tras
+    // el retry aún falta → persiste igual + warning TRANSITORIO (no bloquea, SIN DDL).
+    const facts = resolveComplianceFacts(ctx); // solo de ctx (R-02/R-15), present-only
+    let compliance = checkGbpFactCompliance(profileRow.description, facts);
+    let retried = false;
+
+    if (!compliance.ok) {
+      // R-06/R-08: REGENERAR UNA sola vez con los mismos params + user message aumentado.
+      retried = true;
+      const directive = buildComplianceRetryDirective(compliance.missing);
+      const retryMessage = buildGbpUserMessage(ctx, {
+        complianceDirective: directive
+      });
+      const retryCompletion = await openai.chat.completions.create({
+        model: AI_MODEL,
+        max_tokens: 4096,
+        temperature: resolveGbpTemperature(process.env.OPENAI_GBP_TEMPERATURE),
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: systemContent },
+          { role: 'user', content: retryMessage }
+        ]
+      });
+      const retryText = retryCompletion.choices[0]?.message?.content || '';
+      try {
+        const retryParsed = parseGbpJson(retryText);
+        const retryRow = toGbpProfileRow(client_id, retryParsed, ctx);
+        const retryGuard = guardGbpDescription(retryRow.description); // F-084 sobre el retry
+        if (retryGuard.ok) {
+          // R-08: el intento dirigido es usable → adoptarlo (desc saneada) y re-chequear.
+          retryRow.description = retryGuard.value;
+          profileRow = retryRow;
+          compliance = checkGbpFactCompliance(profileRow.description, facts);
+        }
+        // else: retry blob (no pasa el guard) → conservar el profileRow original (R-09).
+      } catch {
+        // retry malformado (parse/toGbpProfileRow lanza) → conservar el original (R-09).
+      }
+    }
+
+    // R-08/R-10: warning TRANSITORIO (solo en la respuesta HTTP, NUNCA persistido, R-13).
+    const complianceWarning = compliance.ok
+      ? undefined
+      : { missing: compliance.missing, retried };
+
     // --- Persist gbp_profiles (R-10) ---
     const { data: savedProfile, error: profileErr } = await supabase
       .from('gbp_profiles')
@@ -359,7 +412,10 @@ export async function POST(request: NextRequest) {
         offer_id: ctx.offer.offer_id,
         preview_token: token,
         method_grounding_applied: methodGrounding.applied,
-        model: AI_MODEL
+        model: AI_MODEL,
+        // F-098: observabilidad del guard (log-only; NO persiste el warning como estado, R-13).
+        compliance_ok: compliance.ok,
+        compliance_retried: retried
       }
     });
 
@@ -371,7 +427,10 @@ export async function POST(request: NextRequest) {
       method_grounding: {
         applied: methodGrounding.applied,
         reason: methodGrounding.reason
-      }
+      },
+      // F-098 (R-10): warning transitorio solo si tras el guard/retry persisten hechos
+      // faltantes; omitido en el camino feliz (R-11). `success` sigue true (no bloquea).
+      ...(complianceWarning ? { compliance_warning: complianceWarning } : {})
     });
   } catch (error) {
     console.error('generate-gbp error:', error);

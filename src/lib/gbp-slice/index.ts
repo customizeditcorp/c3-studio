@@ -22,6 +22,17 @@ export {
   BRIEF_FACT_KEYS,
   BRIEF_FACT_LABELS
 } from './brief.ts';
+// F-098 — Compliance-guard (verdad del output): guard puro + directiva de retry + warning.
+export {
+  resolveComplianceFacts,
+  checkGbpFactCompliance,
+  buildComplianceRetryDirective,
+  formatComplianceWarning,
+  type ComplianceFactKind,
+  type ComplianceFacts,
+  type MissingFact,
+  type FactComplianceResult
+} from './compliance.ts';
 export {
   resolveGbpTemperature,
   DEFAULT_GBP_TEMPERATURE

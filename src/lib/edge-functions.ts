@@ -53,6 +53,13 @@ export type GenerateGbpSuccess = {
   preview: { id: string; token: string; url: string };
   asset_status: string;
   method_grounding: { applied: boolean; reason: string | null };
+  // F-098 (R-10/R-12) — warning TRANSITORIO opcional: presente solo si tras el guard +
+  // retry-once persisten hechos concretos faltantes en la descripción. No bloquea el
+  // éxito; omitido en el camino feliz. NO se persiste en ninguna tabla.
+  compliance_warning?: {
+    missing: { kind: string; label: string; value: string }[];
+    retried: boolean;
+  };
 };
 
 export type GenerateGbpResult =

@@ -30,6 +30,13 @@ export const CLIENT: RawClient = {
   tier: 'presencia_digital'
 };
 
+/**
+ * F-098 — JD Valley WITH a canonical city set (`Buellton`, the real success-case city).
+ * Derived (non-mutating) so the base `CLIENT` (city:null) stays intact for F-095 tests.
+ * Used to exercise the compliance-guard's `city` must-have (match case/acento-insensitive).
+ */
+export const CLIENT_WITH_CITY: RawClient = { ...CLIENT, city: 'Buellton' };
+
 /** The EMPTY approved offer (status='approved' but no real content) — CL-027. */
 export const EMPTY_OFFER: RawOfferRow = {
   id: 'b106ad61-0d6e-474d-b8b0-940b894cb8ca',
