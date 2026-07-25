@@ -36,6 +36,15 @@ import { resolveWriteMode } from '@/lib/briefs/write-path';
 // framework-free (`node --test`-ables).
 import { resolveContentTemperature } from '@/lib/generate-content/generation-params';
 import { parseGeneratedContent } from '@/lib/generate-content/parse';
+// F-105 — core PURO de no-fabricación de prueba social (backstop determinista, inverso de
+// F-098). Framework-free; la orquestación (check→retry-once→warning transitorio) vive acá,
+// acotada al branch `ofv` y a la clave `social_proof`.
+import {
+  resolveSocialProofGrounding,
+  checkOfvNonFabrication,
+  buildNonFabricationRetryDirective,
+  type FabricationSignal
+} from '@/lib/ofv/non-fabrication';
 const AI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o';
 export async function POST(request: NextRequest) {
   try {
@@ -289,7 +298,10 @@ export async function POST(request: NextRequest) {
           '\nGarantia: ' +
           offer.guarantee;
     }
-    const userMessage =
+    // F-105 (R-05): `userMessageBase` = todo el user message MENOS el cierre de idioma, para
+    // poder insertar la directiva de no-fabricación ANTES del idioma en el retry (mismo
+    // invariante que F-098/F-099). El camino feliz es byte-idéntico (base + idioma al cierre).
+    const userMessageBase =
       '## DATOS DEL CLIENTE\nNegocio: ' +
       client.business_name +
       '\nIndustria: ' +
@@ -309,11 +321,12 @@ export async function POST(request: NextRequest) {
       (input_data
         ? JSON.stringify(input_data, null, 2)
         : 'Sin datos adicionales.') +
-      '\n\nGenera el output en formato JSON + raw_text (markdown). Responde SOLO con JSON valido, sin backticks ni texto adicional.' +
-      // F-081 (R-04/R-06): directiva imperativa de idioma al CIERRE del user message
-      // (recency para gpt-4o) driven por client.content_language. Sobrescribe el idioma
-      // redaccional de los prompt_versions sin reescribirlos (precedente alt-text:101).
-      buildLanguageDirective(client.content_language as string | null);
+      '\n\nGenera el output en formato JSON + raw_text (markdown). Responde SOLO con JSON valido, sin backticks ni texto adicional.';
+    // F-081 (R-04/R-06): directiva imperativa de idioma al CIERRE del user message
+    // (recency para gpt-4o) driven por client.content_language. Sobrescribe el idioma
+    // redaccional de los prompt_versions sin reescribirlos (precedente alt-text:101).
+    const languageDirective = buildLanguageDirective(client.content_language);
+    const userMessage = userMessageBase + languageDirective;
     // F-065: augment the static system_prompt with the method block (R-04/R-14).
     // Empty block -> systemContent === prompt.system_prompt (static intact).
     const systemContent = composeSystemContent(
@@ -353,8 +366,9 @@ export async function POST(request: NextRequest) {
       if (retryResult.ok) result = retryResult;
       // else: conservar `result` (la 1ª generación) — no-regresión (R-08/R-09).
     }
-    const parsedContent: Record<string, unknown> = result.content;
-    const rawText = result.rawText;
+    // F-105 (R-06): `let` — el retry de no-fabricación puede adoptar el output regenerado.
+    let parsedContent: Record<string, unknown> = result.content;
+    let rawText = result.rawText;
     // F-102 R-10 — warning TRANSITORIO (solo en la respuesta HTTP, NUNCA persistido).
     // La `reason` se deriva del PRIMER texto (lo que originó el retry). En camino feliz
     // `result.ok` es true → sin warning (R-11).
@@ -366,6 +380,59 @@ export async function POST(request: NextRequest) {
             : 'unparseable_json') as 'empty_response' | 'unparseable_json',
           retried
         };
+    // --- F-105: guard determinista de no-fabricación de prueba social (backstop) ---
+    // Espejo INVERSO de F-098: detecta hechos NUMÉRICOS fabricados (sin grounding present-
+    // only en el contexto) en `social_proof`. Acotado al step `ofv` y a esa clave (R-11);
+    // corre con save:true y save:false. Conservador/bajo-FP: [PENDIENTE]/vacío/prosa-sin-
+    // números = honesto (R-01). Si detecta fabricación → retry-once dirigido (directiva ANTES
+    // del cierre de idioma F-081, MISMOS params) → adopta solo si el retry es usable Y ya no
+    // fabrica, si no conserva el original (R-05/R-06). Warning TRANSITORIO (nunca persistido,
+    // no bloquea, R-07/R-08). NO toca el validador anti-AI/method-grounding/retry F-102 ni
+    // otros steps (R-12): todo el efecto queda en `parsedContent`/`rawText` + este warning.
+    let nonFabWarning:
+      | { fabricated: FabricationSignal[]; retried: boolean }
+      | undefined;
+    if (step === 'ofv') {
+      const grounding = resolveSocialProofGrounding(contextChain); // present-only (l.242-291)
+      let nf = checkOfvNonFabrication(parsedContent['social_proof'], grounding);
+      let nfRetried = false;
+      if (!nf.ok) {
+        // R-03: fabricación sin grounding → REGENERAR UNA sola vez con los MISMOS params.
+        nfRetried = true;
+        const directive = buildNonFabricationRetryDirective(nf.fabricated);
+        // R-05: directiva ANTES del cierre de idioma (F-081 permanece como último bloque).
+        const retryCompletion = await openai.chat.completions.create({
+          ...callParams,
+          messages: [
+            { role: 'system', content: systemContent },
+            {
+              role: 'user',
+              content: userMessageBase + '\n\n' + directive + languageDirective
+            }
+          ]
+        });
+        const retryText = retryCompletion.choices[0]?.message?.content || '';
+        const retryResult = parseGeneratedContent(retryText);
+        if (retryResult.ok) {
+          const retryNf = checkOfvNonFabrication(
+            retryResult.content['social_proof'],
+            grounding
+          );
+          if (retryNf.ok) {
+            // R-06: adoptar SOLO si el retry es usable Y ya no fabrica (mejora).
+            parsedContent = retryResult.content;
+            rawText = retryResult.rawText;
+            nf = retryNf;
+          }
+          // else: el retry sigue fabricando → conservar el original (R-06).
+        }
+        // else: retry inválido/no-parseable → conservar el original (R-06).
+      }
+      // R-08: warning TRANSITORIO (solo en la respuesta HTTP, NUNCA persistido).
+      nonFabWarning = nf.ok
+        ? undefined
+        : { fabricated: nf.fabricated, retried: nfRetried };
+    }
     let savedRecord: Record<string, unknown> | null = null;
     const tableMap: Record<string, string> = {
       brief: 'briefs',
@@ -585,7 +652,10 @@ export async function POST(request: NextRequest) {
       saved: savedRecord ? { id: savedRecord.id, table: step } : null,
       prompt_version: prompt.id,
       // F-102 R-10/R-11 — campo opcional: omitido en camino feliz (no rompe consumidores).
-      ...(generationWarning ? { generation_warning: generationWarning } : {})
+      ...(generationWarning ? { generation_warning: generationWarning } : {}),
+      // F-105 R-08 — warning TRANSITORIO de no-fabricación (junto a generation_warning);
+      // omitido en camino feliz, NUNCA persistido (no entra en insertData/content._*).
+      ...(nonFabWarning ? { social_proof_warning: nonFabWarning } : {})
     });
   } catch (error) {
     console.error('generate-content error:', error);
