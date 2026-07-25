@@ -73,13 +73,19 @@ export type GenerateGbpResult =
     };
 
 export async function generateGbp(
-  clientId: string
+  clientId: string,
+  // F-099 (R-06) — regenerar-con-feedback: el feedback del cliente se incluye en el body
+  // SOLO si presente. Retrocompatible con `generateGbp(clientId)` (camino normal, sin feedback).
+  options?: { feedback?: string }
 ): Promise<GenerateGbpResult> {
   const response = await fetch('/api/generate-gbp', {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ client_id: clientId })
+    body: JSON.stringify({
+      client_id: clientId,
+      ...(options?.feedback ? { feedback: options.feedback } : {})
+    })
   });
 
   const body = await response.json().catch(() => ({}));

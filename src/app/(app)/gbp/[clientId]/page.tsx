@@ -69,6 +69,8 @@ import {
   formatComplianceWarning,
   type MissingFact
 } from '@/lib/gbp-slice/compliance';
+// F-099 (R-01) — surface del feedback pendiente del preview GBP más reciente (seam pura).
+import { pickPendingFeedback } from '@/lib/gbp-slice/feedback';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -195,6 +197,10 @@ export default function GBPPage() {
   // F-068 CL-035 — controls the in-app anti-dup confirmation modal (replaces the native confirm() dialog).
   const [confirmOpen, setConfirmOpen] = useState(false);
 
+  // F-099 (R-01/R-02) — feedback PENDIENTE del cliente (pedido-de-cambios del preview GBP
+  // más reciente, `approved=false` + feedback no-vacío). null → sin banner (R-03).
+  const [pendingFeedback, setPendingFeedback] = useState<string | null>(null);
+
   useEffect(() => {
     if (!userLoading && tenantId && clientId) {
       loadData();
@@ -311,6 +317,19 @@ export default function GBPPage() {
       .limit(1)
       .maybeSingle();
     setGbpAssetStatus(gbpAsset?.status ?? null);
+
+    // F-099 (R-01/R-12) — leer el preview GBP MÁS RECIENTE del cliente (scoped por
+    // client_id + type='gbp') y derivar el feedback pendiente vía la seam pura. Tras
+    // regenerar, el preview nuevo (sin feedback) es el más reciente → banner oculto (R-05).
+    const { data: latestGbpPreview } = await supabase
+      .from('previews')
+      .select('id, approved, feedback, created_at')
+      .eq('client_id', clientId)
+      .eq('type', 'gbp')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setPendingFeedback(pickPendingFeedback(latestGbpPreview));
 
     setLoading(false);
   };
@@ -600,11 +619,14 @@ export default function GBPPage() {
 
   // F-068 CL-035 — the real effect: exactly one route call + the state machine.
   // This is the previous `handleGenerateGbp` try/finally body, unchanged in behavior.
-  const runGenerateGbp = async () => {
+  // F-099 (R-05/R-06/R-15) — acepta `feedback` opcional (regenerar-con-feedback). Sin
+  // args (botón genérico) → generación normal, sin regresión. Tras regen, `loadData`
+  // recomputa `pendingFeedback` (preview nuevo sin feedback → null → banner oculto, R-05).
+  const runGenerateGbp = async (options?: { feedback?: string }) => {
     setGeneratingGbp(true); // loading: button disabled + spinner, blocks double submit (R-04).
     setGbpGenResult(null);
     try {
-      const result = await generateGbp(clientId); // exactly one call (R-04).
+      const result = await generateGbp(clientId, options); // exactly one call (R-04); propaga feedback (R-06).
 
       if (result.ok) {
         // R-05 — success: expose profile id, preview confirmation + link to /preview/[token].
@@ -676,6 +698,33 @@ export default function GBPPage() {
 
           {/* GBP Profile Tab */}
           <TabsContent value='profile' className='mt-4 max-w-3xl space-y-4'>
+            {/* F-099 (R-02) — banner del pedido-de-cambios del cliente: visible mientras
+                haya feedback pendiente (preview GBP más reciente approved=false + feedback).
+                Box azul/índigo (distinto del verde de éxito y el ámbar de compliance F-098).
+                El botón dispara runGenerateGbp({feedback}) directo (el CTA ES la intención,
+                DT-05). Tras regenerar, loadData recomputa → banner desaparece (R-05). */}
+            {pendingFeedback && (
+              <div className='rounded-md border border-blue-300 bg-blue-50 p-3 text-sm dark:border-blue-900 dark:bg-blue-950'>
+                <p className='font-medium text-blue-800 dark:text-blue-300'>
+                  El cliente pidió cambios
+                </p>
+                <p className='mt-1 text-xs whitespace-pre-wrap text-blue-800 dark:text-blue-300'>
+                  {pendingFeedback}
+                </p>
+                <Button
+                  type='button'
+                  variant='outline'
+                  className='mt-2'
+                  disabled={generatingGbp}
+                  onClick={() => runGenerateGbp({ feedback: pendingFeedback })}
+                >
+                  {generatingGbp
+                    ? 'Regenerando...'
+                    : '✨ Regenerar con este feedback'}
+                </Button>
+              </div>
+            )}
+
             {/* F-067 — GBP slice generation trigger (single control, R-02) */}
             <Card>
               <CardHeader>
