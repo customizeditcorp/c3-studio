@@ -1,3 +1,8 @@
+// F-100 (R-01) — tipo del envelope del snapshot inmutable del entregable. Import de TIPO
+// (erased): el cycle c3-domain → deliverable-public → content-status → c3-domain es sólo de
+// tipos, sin dependencia en runtime.
+import type { DeliverableSnapshotEnvelope } from '@/lib/clients/deliverable-public';
+
 // F-088 — `client_status` (Postgres enum) es la única fuente de verdad del set de
 // estados del cliente; este union se alinea EXACTAMENTE al enum (R-01), sin divergencia.
 // `paused` reconcilia el drift TS↔DB (R-03, DT-05). `delivered`/`maintenance` son los
@@ -43,6 +48,11 @@ export interface Client {
   // `20260724_f093_clients_deliverable_token.sql`; un cliente sin link generado tiene
   // `deliverable_token=null`. Leído vía `select('*')` (tolera columna ausente pre-apply).
   deliverable_token: string | null;
+  // F-100 (R-01) — snapshot inmutable del entregable (envelope { version, captured_at, view }),
+  // congelado SET-ONCE al entrar a `delivered` (misma guarda que `delivered_at`). Aditivo
+  // nullable, aplicado por la migración gateada `20260724_f100_clients_deliverable_snapshot.sql`;
+  // un cliente no entregado / legacy tiene `deliverable_snapshot=null` → el read cae a live (R-09).
+  deliverable_snapshot: DeliverableSnapshotEnvelope | null;
 }
 
 export interface Diagnostic {

@@ -171,6 +171,93 @@ export function buildPublicDeliverableView(
 }
 
 /* ------------------------------------------------------------------------- *
+ * (a2) F-100 — Snapshot inmutable del entregable (envelope + builder + reader)
+ *      R-03, R-04, R-08, R-09, R-10.
+ *
+ * El snapshot congela el view-model client-safe AL MOMENTO DE LA ENTREGA. Se construye
+ * EXCLUSIVAMENTE vía `buildDeliverableSnapshot` → `buildPublicDeliverableView` (arriba) →
+ * hereda POR CONSTRUCCIÓN las garantías de honestidad de F-093 (place_id NUNCA, `verified`
+ * boolean derivado, descripción SOLO si `content_status==='approved'`): capturar su output
+ * es un snapshot honesto sin lógica de sanitización nueva (R-03). Se guarda el VIEW ya
+ * construido (no los inputs crudos): el read NO re-ejecuta `buildPublicDeliverableView` sobre
+ * el snapshot → el snapshot ES la vista congelada, y una regla de honestidad que cambie en el
+ * futuro NO re-deriva un snapshot ya escrito (R-04/R-10).
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Versión del formato del envelope del snapshot (DT-01). Permite evolucionar la forma sin
+ * romper snapshots ya escritos: el reader sirve el `view` sólo si `version` es CONOCIDA
+ * (`=== SNAPSHOT_VERSION`); cualquier otra versión → fallback a live (R-09).
+ */
+export const SNAPSHOT_VERSION = 1;
+
+/**
+ * Envelope de forward-compat del snapshot del entregable (DT-01). `view` es el
+ * `PublicDeliverableView` EXACTO que consume el componente `DeliverablePublicView` (misma
+ * forma en el camino snapshot y en el camino live, R-10). `captured_at` registra CUÁNDO se
+ * congeló (independiente de `delivered_at`, aunque coincidan en la 1ª entrega).
+ */
+export interface DeliverableSnapshotEnvelope {
+  version: number;
+  captured_at: string;
+  view: PublicDeliverableView;
+}
+
+/**
+ * R-03/R-04 — Construye el envelope del snapshot envolviendo el view-model client-safe de
+ * `buildPublicDeliverableView(inputs)` (única fuente de honestidad F-093). Puro/determinista:
+ * `now` es inyectable para tests. NO carga datos ni accede a red/DOM — el caller le pasa los
+ * activos vivos ya cargados (seam de write puro, DT-02).
+ */
+export function buildDeliverableSnapshot(
+  inputs: PublicDeliverableInputs,
+  now: () => string = () => new Date().toISOString()
+): DeliverableSnapshotEnvelope {
+  return {
+    version: SNAPSHOT_VERSION,
+    captured_at: now(),
+    view: buildPublicDeliverableView(inputs)
+  };
+}
+
+/**
+ * Type guard: `value` es un `DeliverableSnapshotEnvelope` de versión CONOCIDA y forma válida.
+ * Un envelope null / de versión desconocida / con forma inválida NO califica → el reader cae a
+ * live (R-09). Chequea sólo lo estructural mínimo: `version === SNAPSHOT_VERSION` y `view` es
+ * un objeto (la forma exacta del view se congeló en el momento de la escritura, no se re-valida
+ * campo a campo — se sirve tal cual, R-10).
+ */
+function isKnownSnapshotEnvelope(
+  value: unknown
+): value is DeliverableSnapshotEnvelope {
+  if (typeof value !== 'object' || value === null) return false;
+  const env = value as { version?: unknown; view?: unknown };
+  return (
+    env.version === SNAPSHOT_VERSION &&
+    typeof env.view === 'object' &&
+    env.view !== null
+  );
+}
+
+/**
+ * R-08/R-09/R-10 — Read snapshot-first CON fallback a live. Si `snapshot` es un envelope
+ * VÁLIDO de versión conocida, devuelve `snapshot.view` TAL CUAL (congelado; NO recomputa desde
+ * `liveInputs` aunque difieran). En cualquier otro caso —`null` (cliente legacy sin snapshot),
+ * versión desconocida, o forma inválida— devuelve `buildPublicDeliverableView(liveInputs)`
+ * (comportamiento F-093 actual: degradación honesta, sin romper la ruta). El componente
+ * consume el MISMO `PublicDeliverableView` en ambos caminos (R-10).
+ */
+export function resolveDeliverableView(input: {
+  snapshot: unknown;
+  liveInputs: PublicDeliverableInputs;
+}): PublicDeliverableView {
+  if (isKnownSnapshotEnvelope(input.snapshot)) {
+    return input.snapshot.view;
+  }
+  return buildPublicDeliverableView(input.liveInputs);
+}
+
+/* ------------------------------------------------------------------------- *
  * (b) isPublicDeliverable — gate de "entregado" (R-08)
  * ------------------------------------------------------------------------- */
 
