@@ -31,6 +31,11 @@ import { shouldPersistGeneratedOutput } from '@/lib/gbp-slice/content-status';
 // F-097 — regenerar = UPDATE del draft vivo (no INSERT acumulativo) en el
 // path compartido del tableMap (brief/buyer_persona/ofv).
 import { resolveWriteMode } from '@/lib/briefs/write-path';
+// F-102 — seams puros: temperature controlada + parse con señal de usabilidad (`ok`)
+// para orquestar el retry-once. La orquestación vive acá (la ruta), los seams son
+// framework-free (`node --test`-ables).
+import { resolveContentTemperature } from '@/lib/generate-content/generation-params';
+import { parseGeneratedContent } from '@/lib/generate-content/parse';
 const AI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o';
 export async function POST(request: NextRequest) {
   try {
@@ -316,28 +321,51 @@ export async function POST(request: NextRequest) {
       methodBlock
     );
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const completion = await openai.chat.completions.create({
-      model: AI_MODEL,
-      max_tokens: 4096,
-      messages: [
-        { role: 'system', content: systemContent },
-        { role: 'user', content: userMessage }
-      ]
-    });
-    const responseText = completion.choices[0]?.message?.content || '';
-    let parsedContent: Record<string, unknown>;
-    let rawText = responseText;
-    try {
-      const cleaned = responseText
-        .replace(/```json\n?/g, '')
-        .replace(/```\n?/g, '')
-        .trim();
-      parsedContent = JSON.parse(cleaned);
-      rawText = (parsedContent.raw_text as string) || responseText;
-    } catch {
-      parsedContent = { generated_text: responseText };
-      rawText = responseText;
+    // F-102 R-01/R-03/R-04 — call factorizado para reusarlo en el retry con params
+    // IDÉNTICOS: temperature baja controlada (env-overridable, fallback robusto) en vez
+    // del default 1.0 del proveedor, y `response_format: json_object` (el keyword `json`
+    // ya vive en el user message → requisito de la API satisfecho, R-05).
+    const callParams: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming =
+      {
+        model: AI_MODEL,
+        max_tokens: 4096,
+        temperature: resolveContentTemperature(
+          process.env.OPENAI_CONTENT_TEMPERATURE
+        ),
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: systemContent },
+          { role: 'user', content: userMessage }
+        ]
+      };
+    // F-102 R-06/R-07/R-08/R-09 — parse con seam puro (señal `ok`) + retry-once dirigido
+    // a fallo estructural (vacío o JSON no parseable). Re-call con los MISMOS params, máx 1;
+    // si el retry es usable se adopta, si no se conserva la 1ª generación (no-regresión).
+    const first = await openai.chat.completions.create(callParams);
+    const firstText = first.choices[0]?.message?.content || '';
+    let result = parseGeneratedContent(firstText);
+    let retried = false;
+    if (!result.ok) {
+      retried = true;
+      const retry = await openai.chat.completions.create(callParams);
+      const retryText = retry.choices[0]?.message?.content || '';
+      const retryResult = parseGeneratedContent(retryText);
+      if (retryResult.ok) result = retryResult;
+      // else: conservar `result` (la 1ª generación) — no-regresión (R-08/R-09).
     }
+    const parsedContent: Record<string, unknown> = result.content;
+    const rawText = result.rawText;
+    // F-102 R-10 — warning TRANSITORIO (solo en la respuesta HTTP, NUNCA persistido).
+    // La `reason` se deriva del PRIMER texto (lo que originó el retry). En camino feliz
+    // `result.ok` es true → sin warning (R-11).
+    const generationWarning = result.ok
+      ? undefined
+      : {
+          reason: (firstText.trim().length === 0
+            ? 'empty_response'
+            : 'unparseable_json') as 'empty_response' | 'unparseable_json',
+          retried
+        };
     let savedRecord: Record<string, unknown> | null = null;
     const tableMap: Record<string, string> = {
       brief: 'briefs',
@@ -540,7 +568,11 @@ export async function POST(request: NextRequest) {
           metadata: {
             prompt_version_id: prompt.id,
             methodology: prompt.methodology,
-            model: AI_MODEL
+            model: AI_MODEL,
+            // F-102 R-14 — observabilidad log-only (metadata es JSON existente, NO columna
+            // nueva). Análogo a compliance_ok/compliance_retried de F-098.
+            generation_ok: result.ok,
+            generation_retried: retried
           }
         });
       }
@@ -551,7 +583,9 @@ export async function POST(request: NextRequest) {
       content: parsedContent,
       raw_text: rawText,
       saved: savedRecord ? { id: savedRecord.id, table: step } : null,
-      prompt_version: prompt.id
+      prompt_version: prompt.id,
+      // F-102 R-10/R-11 — campo opcional: omitido en camino feliz (no rompe consumidores).
+      ...(generationWarning ? { generation_warning: generationWarning } : {})
     });
   } catch (error) {
     console.error('generate-content error:', error);
