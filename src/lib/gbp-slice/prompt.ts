@@ -52,8 +52,16 @@ export function buildGbpSystemPrompt(base?: string | null): string {
 }
 
 /** Assembles the user message grounding the generation in OFV + brandboard + client
- * (R-03/R-04/R-10). Includes degradation notes for logo/media/op-state. */
-export function buildGbpUserMessage(ctx: GbpContext): string {
+ * (R-03/R-04/R-10). Includes degradation notes for logo/media/op-state.
+ *
+ * F-098 (R-06/R-07): optional `options.complianceDirective` (the retry correction) is
+ * inserted AFTER the "Responde SOLO con JSON" line and BEFORE the closing language
+ * directive (F-081), so the language directive stays the LAST block (recency). Without
+ * the option the output is byte-identical to F-095 (no-regression, R-14). */
+export function buildGbpUserMessage(
+  ctx: GbpContext,
+  options?: { complianceDirective?: string }
+): string {
   const { client, offer, brandboard, logo, media, operational, briefFacts } =
     ctx;
 
@@ -148,6 +156,17 @@ export function buildGbpUserMessage(ctx: GbpContext): string {
   lines.push(
     'Genera el contenido del perfil GBP en JSON válido, respetando el tono de marca. Responde SOLO con JSON.'
   );
+
+  // F-098 (R-06/R-07): directiva de corrección del retry-once, insertada TRAS la línea
+  // "Responde SOLO con JSON" y ANTES del cierre de idioma → la directiva de idioma
+  // (F-081) sigue siendo el ÚLTIMO bloque (recency). Sin option → salida idéntica a F-095.
+  if (
+    options?.complianceDirective &&
+    options.complianceDirective.trim().length > 0
+  ) {
+    lines.push('');
+    lines.push(options.complianceDirective);
+  }
 
   // F-081 (R-05/R-06): directiva imperativa de idioma al CIERRE del user message
   // (recency) driven por client.content_language. Mantiene el ensamblado del mensaje
