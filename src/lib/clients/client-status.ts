@@ -19,6 +19,8 @@
  */
 
 import type { ClientStatus } from '@/types/c3-domain';
+// F-100 (R-02) — tipo del envelope del snapshot; el seam lo RECIBE ya construido (write puro).
+import type { DeliverableSnapshotEnvelope } from '@/lib/clients/deliverable-public';
 
 /**
  * Único set canónico de estados válidos (R-01), alineado EXACTAMENTE al enum
@@ -141,6 +143,14 @@ export interface ClientStatusWriteClient {
  * tenía valor, NO se pisa (set-once); si `target` no es `delivered`, la columna queda intacta
  * (ninguna otra transición la toca). El seam se mantiene puro/determinista: recibe el valor
  * actual del caller (la ficha ya carga el cliente), sin roundtrip de lectura extra.
+ *
+ * F-100 (R-02/R-05/R-07) — `deliverable_snapshot` set-once: bajo la MISMA guarda que
+ * `delivered_at` (`target==='delivered'` Y `currentDeliveredAt` NULL), si el caller pasó un
+ * `deliverableSnapshot` (envelope YA construido — el seam NO lo carga, DT-02), se incluye en
+ * el MISMO UPDATE (set-once atómico junto a `delivered_at`). Cualquier otra transición o un
+ * `delivered_at` ya presente NO lo tocan (inmutable, R-05). Si la captura falló y el caller
+ * no lo pasa (`undefined`/`null`), la entrega procede SIN snapshot (R-06): el UPDATE setea
+ * `delivered_at` solo, y el read caerá a live (degradación honesta, igual que legacy).
  */
 export async function persistClientStatus(deps: {
   supabase: ClientStatusWriteClient;
@@ -148,6 +158,7 @@ export async function persistClientStatus(deps: {
   tenantId: string;
   target: string;
   currentDeliveredAt?: string | null;
+  deliverableSnapshot?: DeliverableSnapshotEnvelope | null;
   now?: () => string;
 }): Promise<ClientStatus> {
   const { supabase, clientId, tenantId, target } = deps;
@@ -164,6 +175,12 @@ export async function persistClientStatus(deps: {
   // Cualquier otro target (R-08) o un delivered_at ya presente (R-07) deja la columna intacta.
   if (target === 'delivered' && !deps.currentDeliveredAt) {
     values.delivered_at = now;
+    // F-100 (R-02/R-05/R-06): en la MISMA 1ª entrega, congela el snapshot SI el caller lo
+    // proveyó (captura ok). Sin snapshot (captura falló) → no se agrega la key: entrega no
+    // bloqueada, read cae a live (R-06). Set-once: sólo aquí, nunca re-escrito (R-05).
+    if (deps.deliverableSnapshot) {
+      values.deliverable_snapshot = deps.deliverableSnapshot;
+    }
   }
   const { error } = await supabase
     .from('clients')

@@ -39,9 +39,12 @@ import {
   type DeliverableSummary
 } from '@/lib/clients/deliverable';
 // F-093 (R-03/R-04/R-05) — seam puro que decide el token efectivo + si persistir.
+// F-100 (R-02) — builder puro del snapshot inmutable del entregable + su tipo.
 import {
   resolveDeliverableLinkAction,
-  type DeliverableLinkAction
+  buildDeliverableSnapshot,
+  type DeliverableLinkAction,
+  type DeliverableSnapshotEnvelope
 } from '@/lib/clients/deliverable-public';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -315,6 +318,50 @@ export default function ClientDetailPage() {
     if (!client || !target || !tenantId) return;
     setSavingStatus(true);
     try {
+      // F-100 (R-02/R-06) — captura SET-ONCE del snapshot inmutable, SOLO en la 1ª entrega
+      // (entrar a `delivered` con delivered_at NULL). El fetch de la ficha carga un subset
+      // insuficiente de gbp_profiles/client_photos → se cargan FRESCOS (mirror del loader de
+      // `deliverable/[token]/page.tsx`) y se construye el envelope con el seam puro
+      // `buildDeliverableSnapshot` (hereda la honestidad de F-093: place_id nunca, verified
+      // boolean, descripción sólo si approved). La captura NO bloquea la entrega (R-06): si
+      // algo falla, se procede sin snapshot y el read caerá a live.
+      const nowIso = new Date().toISOString();
+      let deliverableSnapshot: DeliverableSnapshotEnvelope | undefined;
+      if (target === 'delivered' && !client.delivered_at) {
+        try {
+          const [{ data: gbpProfile }, { data: photos }] = await Promise.all([
+            supabase
+              .from('gbp_profiles')
+              .select('*')
+              .eq('client_id', client.id)
+              .maybeSingle(),
+            supabase
+              .from('client_photos')
+              .select('*')
+              .eq('client_id', client.id)
+              .eq('approved', true)
+              .limit(10)
+          ]);
+          deliverableSnapshot = buildDeliverableSnapshot(
+            {
+              // El delivered_at que se está seteando (client.delivered_at es NULL aquí):
+              // el mismo `nowIso` que persistClientStatus escribirá → vista coherente.
+              deliveredAt: nowIso,
+              gbpProfile: gbpProfile ?? null,
+              client: {
+                business_name: client.business_name ?? null,
+                phone: client.phone ?? null
+              },
+              photos: photos ?? []
+            },
+            () => nowIso
+          );
+        } catch {
+          // R-06 — la captura NO bloquea la entrega: se procede sin snapshot (columna NULL)
+          // y el read caerá a live (degradación honesta, idéntica a un cliente legacy).
+          deliverableSnapshot = undefined;
+        }
+      }
       await persistClientStatus({
         supabase: supabase as unknown as ClientStatusWriteClient,
         clientId: client.id,
@@ -322,7 +369,13 @@ export default function ClientDetailPage() {
         target,
         // F-092 (R-06/R-07) — set-once: pasar el delivered_at actual del cliente ya cargado;
         // el seam sólo escribe delivered_at al ENTRAR a `delivered` con este valor en NULL.
-        currentDeliveredAt: client.delivered_at ?? null
+        currentDeliveredAt: client.delivered_at ?? null,
+        // F-100 (R-02) — el snapshot ya construido (o undefined si no aplica / falló); el seam
+        // lo escribe en el MISMO UPDATE que delivered_at bajo la misma guarda set-once.
+        deliverableSnapshot,
+        // F-100 — mismo `now` para delivered_at y para el snapshot → la fecha de la vista
+        // congelada coincide con la fecha de entrega real registrada.
+        now: () => nowIso
       });
       setConfirmOpen(false);
       setPendingStatus(null);
