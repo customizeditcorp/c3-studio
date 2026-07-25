@@ -141,7 +141,9 @@ test('T-09 handleSaveDraft: tiene rama insert a briefs + setBriefRecord (R-01)',
 });
 
 test('T-09 handleApproveBrief: tiene rama insert a briefs + setBriefRecord (R-02)', () => {
-  const body = sliceFrom(briefSrc, 'const handleApproveBrief');
+  // F-109: handleApproveBrief creció (guard + approved_by/at) → ventana ampliada
+  // para seguir alcanzando la rama insert. Intent intacto.
+  const body = sliceFrom(briefSrc, 'const handleApproveBrief', 2600);
   assert.match(body, /\.from\('briefs'\)\s*\.insert\(/);
   assert.match(body, /setBriefRecord\(/);
 });
@@ -159,7 +161,8 @@ test('T-10 handleSaveDraft: update e insert incluyen raw_text (columna, no solo 
 });
 
 test('T-10 handleApproveBrief: update e insert incluyen raw_text (columna sincronizada)', () => {
-  const body = sliceFrom(briefSrc, 'const handleApproveBrief');
+  // F-109: ventana ampliada (guard + approved_by/at). Intent intacto.
+  const body = sliceFrom(briefSrc, 'const handleApproveBrief', 2600);
   assert.match(body, /\.update\(\{[^}]*raw_text:/);
   assert.match(body, /\.insert\(\{[^}]*raw_text:/);
 });
@@ -261,6 +264,7 @@ test('T-14 handleSaveDraft: insert manual setea prompt_version_id: null (DT-01)'
 });
 
 test('T-14 handleApproveBrief: insert manual setea prompt_version_id: null (DT-01)', () => {
-  const body = sliceFrom(briefSrc, 'const handleApproveBrief');
+  // F-109: ventana ampliada (guard + approved_by/at). Intent intacto.
+  const body = sliceFrom(briefSrc, 'const handleApproveBrief', 2600);
   assert.match(body, /prompt_version_id:\s*null/);
 });
