@@ -13,6 +13,13 @@ import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { logActivity } from '@/lib/activity';
 import { generateContent } from '@/lib/edge-functions';
 import { buildBriefWritePayload } from '@/lib/briefs/write-path';
+// F-107 — single-source de la OFV: el adaptador de campos + el proyector puro
+// hacen que aprobar/editar la OFV persista `content` Y las columnas planas/jsonb
+// sincronizadas (antes escribía solo `content` → edición cosmética).
+import {
+  buildOfvWritePayload,
+  ofvFieldsToContent
+} from '@/lib/offers/write-path';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
@@ -774,9 +781,16 @@ export default function BriefPage() {
     if (!ofvRecord || !tenantId || !user) return;
     setApprovingOfv(true);
     try {
+      // F-107 R-05 — single-source: derivar content alineado al schema (adaptador
+      // DT-01) y proyectar las columnas planas/jsonb desde el mismo helper que usa
+      // el route. El `update` persiste `content` Y columnas sincronizadas (antes
+      // escribía solo `content` → la edición era cosmética). status/gating intactos.
+      const { columns, content: ofvContent } = buildOfvWritePayload(
+        ofvFieldsToContent(ofvFields)
+      );
       await supabase
         .from('offers')
-        .update({ status: 'approved', content: fieldsToContent(ofvFields) })
+        .update({ status: 'approved', content: ofvContent, ...columns })
         .eq('id', ofvRecord.id);
       setOfvRecord((prev) => (prev ? { ...prev, status: 'approved' } : prev));
       await logActivity({

@@ -31,6 +31,12 @@ import { shouldPersistGeneratedOutput } from '@/lib/gbp-slice/content-status';
 // F-097 — regenerar = UPDATE del draft vivo (no INSERT acumulativo) en el
 // path compartido del tableMap (brief/buyer_persona/ofv).
 import { resolveWriteMode } from '@/lib/briefs/write-path';
+// F-107 — single-source de la OFV: proyector puro de columnas (byte-equivalente
+// al bucle inline previo, R-09) reusado por route + UI. `normalizeOffer` da el
+// read-fallback content-first en el needsOffer de generate-content (R-07/R-08).
+import { buildOfvWritePayload } from '@/lib/offers/write-path';
+import { normalizeOffer } from '@/lib/gbp-slice/context';
+import type { RawOfferRow } from '@/lib/gbp-slice/types';
 // F-102 — seams puros: temperature controlada + parse con señal de usabilidad (`ok`)
 // para orquestar el retry-once. La orquestación vive acá (la ruta), los seams son
 // framework-free (`node --test`-ables).
@@ -285,18 +291,23 @@ export async function POST(request: NextRequest) {
         .order('version', { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (offer)
+      if (offer) {
+        // F-107 R-07/R-08 — read-fallback content-first: `normalizeOffer` hace
+        // pickString(plana, content) → una edición almacenada en `content` deja
+        // de ser ignorada (antes leía SOLO las planas, sin fallback).
+        const o = normalizeOffer(offer as RawOfferRow);
         contextChain +=
           '\n\n## OFERTA DE VALOR (APROBADA)\nBig Promise: ' +
-          offer.big_promise +
+          o.big_promise +
           '\nVehiculo: ' +
-          offer.vehicle_name +
+          o.vehicle_name +
           ' — ' +
-          offer.vehicle_description +
+          o.vehicle_description +
           '\nQuick Win: ' +
-          offer.quick_win +
+          o.quick_win +
           '\nGarantia: ' +
-          offer.guarantee;
+          o.guarantee;
+      }
     }
     // F-105 (R-05): `userMessageBase` = todo el user message MENOS el cierre de idioma, para
     // poder insertar la directiva de no-fabricación ANTES del idioma en el retry (mismo
@@ -482,19 +493,14 @@ export async function POST(request: NextRequest) {
             );
           }
           insertData.persona_id = lp.id;
-          for (const k of [
-            'big_promise',
-            'vehicle_name',
-            'vehicle_description',
-            'quick_win',
-            'decision_frame',
-            'guarantee',
-            'urgency',
-            'social_proof',
-            'deliverables'
-          ]) {
-            if (parsedContent[k]) insertData[k] = parsedContent[k];
-          }
+          // F-107 R-06/R-09 — proyección de columnas vía el helper puro
+          // (byte-equivalente al bucle inline previo). `insertData.content` se
+          // sigue armando FUERA del helper con attachValidation/attachMethodGrounding
+          // (R-10, más abajo). persona_id/422/resolveWriteMode intactos (R-11).
+          Object.assign(
+            insertData,
+            buildOfvWritePayload(parsedContent).columns
+          );
           // F-064: anti-AI validation (detective, non-blocking). Extract the
           // offers-shape fields and append `content._validation`. is_valid=false
           // does NOT abort, change status, or gate anything (R-14/R-15/R-16).
