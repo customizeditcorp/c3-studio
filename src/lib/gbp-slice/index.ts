@@ -33,6 +33,12 @@ export {
   type MissingFact,
   type FactComplianceResult
 } from './compliance.ts';
+// F-099 — Loop de revisión (Scope A): surface del feedback pendiente + directiva de ajuste.
+export {
+  pickPendingFeedback,
+  buildFeedbackDirective,
+  type PreviewFeedbackRow
+} from './feedback.ts';
 export {
   resolveGbpTemperature,
   DEFAULT_GBP_TEMPERATURE

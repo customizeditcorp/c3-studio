@@ -41,7 +41,9 @@ import {
   // F-098 — compliance-guard (verdad del output): guard puro + directiva de retry.
   resolveComplianceFacts,
   checkGbpFactCompliance,
-  buildComplianceRetryDirective
+  buildComplianceRetryDirective,
+  // F-099 — loop de revisión: directiva de ajuste por feedback del cliente.
+  buildFeedbackDirective
 } from '@/lib/gbp-slice';
 // F-089 R-06 — la regeneración repone `content_status='draft'`: el contenido nuevo
 // invalida cualquier aprobación previa (la aprobación siempre refleja el contenido actual).
@@ -88,6 +90,9 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => ({}));
     const client_id = body?.client_id as string | undefined;
+    // F-099 (R-07/R-10): feedback opcional del cliente para regenerar-con-feedback.
+    // Ausente/vacío → camino normal (sin directiva), llamada idéntica a hoy.
+    const feedbackRaw = body?.feedback as string | undefined;
     if (!client_id) {
       return NextResponse.json(
         { error: 'client_id is required' },
@@ -250,7 +255,17 @@ export async function POST(request: NextRequest) {
       buildGbpSystemPrompt(promptRow?.system_prompt),
       methodBlock
     );
-    const userMessage = buildGbpUserMessage(ctx);
+    // F-099 (R-07/R-10): computar la directiva de feedback UNA vez (tras `ctx`, antes de
+    // la 1ª generación). Sin feedback (ausente/vacío) → undefined → user message idéntico
+    // a hoy (R-10). Con feedback → se inyecta ANTES del cierre de idioma (F-081, R-08).
+    const feedbackDirective =
+      typeof feedbackRaw === 'string' && feedbackRaw.trim().length > 0
+        ? buildFeedbackDirective(feedbackRaw)
+        : undefined;
+    const userMessage = buildGbpUserMessage(
+      ctx,
+      feedbackDirective ? { feedbackDirective } : undefined
+    );
 
     // --- T-04: generate (R-10) ---
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -310,7 +325,10 @@ export async function POST(request: NextRequest) {
       // R-06/R-08: REGENERAR UNA sola vez con los mismos params + user message aumentado.
       retried = true;
       const directive = buildComplianceRetryDirective(compliance.missing);
+      // F-099 (R-09): el retry de compliance pasa AMBAS directivas → la de feedback NO se
+      // pierde en el retry interno de compliance (feedback antes de compliance; idioma al cierre).
       const retryMessage = buildGbpUserMessage(ctx, {
+        feedbackDirective,
         complianceDirective: directive
       });
       const retryCompletion = await openai.chat.completions.create({
@@ -415,7 +433,10 @@ export async function POST(request: NextRequest) {
         model: AI_MODEL,
         // F-098: observabilidad del guard (log-only; NO persiste el warning como estado, R-13).
         compliance_ok: compliance.ok,
-        compliance_retried: retried
+        compliance_retried: retried,
+        // F-099 (R-05/R-14): observabilidad del regenerar-con-feedback (log-only; NO persiste
+        // el ciclo del feedback como estado — el supersede por recencia lo resuelve, SIN DDL).
+        feedback_regen: !!feedbackDirective
       }
     });
 

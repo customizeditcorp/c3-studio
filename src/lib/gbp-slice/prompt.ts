@@ -57,10 +57,17 @@ export function buildGbpSystemPrompt(base?: string | null): string {
  * F-098 (R-06/R-07): optional `options.complianceDirective` (the retry correction) is
  * inserted AFTER the "Responde SOLO con JSON" line and BEFORE the closing language
  * directive (F-081), so the language directive stays the LAST block (recency). Without
- * the option the output is byte-identical to F-095 (no-regression, R-14). */
+ * the option the output is byte-identical to F-095 (no-regression, R-14).
+ *
+ * F-099 (R-07/R-08/R-09/R-10): the `options` bag gains a sibling `feedbackDirective`
+ * (the client's requested-changes directive). Insertion order after "Responde SOLO con
+ * JSON": (1) `feedbackDirective`, (2) `complianceDirective`; the language directive
+ * (F-081) stays the LAST block (recency, R-08). Without any option the output is
+ * byte-identical to F-095/F-098; `complianceDirective` alone keeps F-098's exact
+ * position/output (no-regression, R-10/R-15). */
 export function buildGbpUserMessage(
   ctx: GbpContext,
-  options?: { complianceDirective?: string }
+  options?: { complianceDirective?: string; feedbackDirective?: string }
 ): string {
   const { client, offer, brandboard, logo, media, operational, briefFacts } =
     ctx;
@@ -156,6 +163,17 @@ export function buildGbpUserMessage(
   lines.push(
     'Genera el contenido del perfil GBP en JSON válido, respetando el tono de marca. Responde SOLO con JSON.'
   );
+
+  // F-099 (R-07/R-08): directiva de REVISIÓN del cliente (regenerar-con-feedback),
+  // insertada TRAS "Responde SOLO con JSON" y ANTES de la de compliance y del cierre de
+  // idioma → el idioma (F-081) sigue siendo el ÚLTIMO bloque. Feedback ANTES de compliance.
+  if (
+    options?.feedbackDirective &&
+    options.feedbackDirective.trim().length > 0
+  ) {
+    lines.push('');
+    lines.push(options.feedbackDirective);
+  }
 
   // F-098 (R-06/R-07): directiva de corrección del retry-once, insertada TRAS la línea
   // "Responde SOLO con JSON" y ANTES del cierre de idioma → la directiva de idioma
