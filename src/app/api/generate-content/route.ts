@@ -50,6 +50,13 @@ import {
   buildOfvMethodLines,
   normalizeDecisionFrame
 } from '@/lib/offers/method-context';
+// F-112 — operación ESPEJO de F-111 del lado de la persona (CL-094): extrae los 10
+// campos canónicos de `buyer_personas` y los ANEXA etiquetados SOLO para el step `ofv`
+// (default-deny). El blob `## BUYER PERSONA (APROBADO)` queda intacto (R-13).
+import {
+  buildPersonaMethodBlock,
+  type RawPersonaRow
+} from '@/lib/personas/method-context';
 // F-102 — seams puros: temperature controlada + parse con señal de usabilidad (`ok`)
 // para orquestar el retry-once. La orquestación vive acá (la ruta), los seams son
 // framework-free (`node --test`-ables).
@@ -290,10 +297,17 @@ export async function POST(request: NextRequest) {
         .order('version', { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (persona)
+      if (persona) {
         contextChain +=
           '\n\n## BUYER PERSONA (APROBADO)\n' +
           (persona.raw_text || JSON.stringify(persona.content));
+        // F-112 R-11/R-13 — COMPLEMENTA, no reemplaza: el blob de arriba queda
+        // intacto y acá se ANEXA el bloque campo-a-campo, sólo para el step `ofv`.
+        contextChain += buildPersonaMethodBlock({
+          step,
+          persona: persona as RawPersonaRow
+        });
+      }
     }
     if (needsOffer) {
       // F-109 R-11 — traer TODOS los approved candidatos (sin `limit(1)`) y elegir

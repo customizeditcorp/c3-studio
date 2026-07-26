@@ -66,6 +66,22 @@ Ejemplo: "GBP activo y optimizado en 7 días. Primera reseña antes del día 15.
 - PROHIBIDO fabricar testimonios, nombres de clientes, casos, conteos de clientes o métricas antes/después inexistentes
 - La prueba social pública se construye con enlace a reseñas reales, nunca con nombres de clientes inventados (conventions §12.7)
 
+MAPEO CAMPO-A-CAMPO PERSONA→OFV:
+El contexto puede traer un bloque "## BUYER PERSONA — CAMPOS CANÓNICOS (MAPEO AL MÉTODO)"
+con campos etiquetados de la persona aprobada. Cuando esté presente, úsalo campo-a-campo:
+- Dolor principal / Dolores secundarios → Sección 1 BIG PROMISE ([Resultado] + [objeción anulada])
+- Resultado soñado → Resultado Deseado Excepcional (componente 1 de la Ecuación de Valor)
+- Nivel de conciencia → tono de entrada (ARC3 → ARC4): a más conciencia, menos educación y más contraste de opciones
+- Objeción precio → Sección 4 (desglose de pagos claro) + Golpe Preventivo de ARC5: anticípala ANTES de que aparezca
+- Objeción confianza → Sección 6 GARANTÍA / RISK REVERSAL (+ Alta Probabilidad de Logro)
+- Objeción tiempo → Sección 3 QUICK WIN + Esfuerzo Mínimo
+- Si no hace nada (status quo) → Sección 4, Opción C (consecuencias de no actuar), con las palabras del cliente
+- Si elige la competencia / Si elige C3 → contraste de las Opciones A y B de la Sección 4
+DEGRADACIÓN HONESTA: usa SOLO los campos presentes en ese bloque. Si un campo no aparece, NO lo
+inventes ni lo sustituyas por objeciones o escenarios genéricos: escribe la sección con lo que sí
+tienes o marca [PENDIENTE] según el PRINCIPIO DE HONESTIDAD. Si el bloque no viene, procede con el
+resto del contexto sin bloquearte.
+
 INTEGRACIÓN CON ARC7:
 - La OFV alimenta ARC4 (Presentar solución con Principio de Tres)
 - El Quick Win actúa como Golpe Preventivo de ARC5 contra "no funciona"

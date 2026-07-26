@@ -27,6 +27,11 @@
  * `offers/write-path.ts`; este es el *un-fold* del lado lectura.
  */
 import type { RawOfferRow, NormalizedOffer } from '../gbp-slice/types.ts';
+// F-112 R-07 / DT-3(c) — el marcador `[PENDIENTE]` y su predicado viven en UNA sola
+// definición del repo (`method-context/pending.ts`), compartida con el extractor
+// espejo del otro lado de la cadena canónica. Refactor preservador de comportamiento:
+// `cleanScalar` conserva el contrato exacto que tenía la copia privada de F-111.
+import { cleanScalar } from '../method-context/pending.ts';
 
 /** Campos de OFV que el método reparte por step (F-111 / CL-094). */
 export type OfvMethodField = 'decision_frame' | 'urgency';
@@ -44,10 +49,6 @@ export interface NormalizedDecisionFrame {
   text: string | null;
 }
 
-/** Marcador de gestión de F-104/F-106. Legítimo en el ARTEFACTO, pero no debe
- * inyectarse en el prompt de un generador de copy (R-30 / DT-11). */
-const PENDING_MARKER = '[pendiente]';
-
 /** Claves de nivel superior del objeto `decision_frame` que SÍ se leen (R-29): el
  * resto se ignora, en particular la `urgency` anidada (presente en `a6c66d5c` y
  * `b655483e`) — la urgencia canónica se emite por su propia línea vía
@@ -59,21 +60,6 @@ const OPTION_KEYS = ['option_a', 'option_b', 'option_c'] as const;
  * anti-duplicación de R-29 (design §2.3.1 paso 5: "se descartan las claves de
  * R-29"). No observada dentro de una opción, se filtra por coherencia. */
 const OPTION_EXCLUDED_KEYS = new Set<string>(['urgency']);
-
-/** Escalar → texto útil, o `null`. Aplica trim, descarta vacío y descarta el valor
- * EXACTAMENTE igual a `[PENDIENTE]` (case-insensitive, R-30). Residual declarado:
- * un `[PENDIENTE]` embebido en una frase más larga NO se filtra (filtrarlo exigiría
- * reescribir contenido aprobado — fuera de scope). */
-function cleanScalar(value: unknown): string | null {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return String(value);
-  }
-  if (typeof value !== 'string') return null;
-  const t = value.trim();
-  if (t.length === 0) return null;
-  if (t.toLowerCase() === PENDING_MARKER) return null;
-  return t;
-}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return (
