@@ -102,19 +102,66 @@ test('T-10 R-18 `needsPersona` conserva sus 9 steps, sin altas ni bajas', () => 
   assert.equal((block.match(/'/g) ?? []).length / 2, 9);
 });
 
-test('T-10 R-18 el `select` y los filtros de la consulta de persona sin cambios', () => {
+/**
+ * **F-113 (R-21) — MARCADOR FORWARD-DECLARADO CRUZADO POR DISEÑO. Reescrito
+ * preservando la intención, NO borrado ni vaciado.**
+ *
+ * Este guard nació en F-112 para fijar que *la consulta de persona no cambió*, y
+ * aseveraba `.select('content, raw_text')` + `.order('version', desc)` + `.limit(1)` +
+ * `.maybeSingle()`. **F-113 cruza esa frontera a propósito** (CL-099): SCS Cleaning
+ * tiene **3 personas `approved`, todas `version = 1`**, y `limit(1)` dejaba la elección
+ * en manos de Postgres — ganaba `e8e8c500`, la persona SIN campos canónicos. Ése es
+ * exactamente el motivo por el que la §6.1 de F-112 no pudo ser positiva (CL-098): el
+ * helper de F-112 emitía `''` **correctamente**, sobre la fila equivocada. Precedente
+ * del mismo tipo de cruce: F-109 reescribió los marcadores de F-107/F-108.
+ * **Nota explícita para el reviewer (CP-04): este cruce está autorizado por R-21 de
+ * F-113.**
+ *
+ * **Qué se preserva** (la intención original, intacta): los filtros que definen QUÉ
+ * filas son elegibles (`client_id`, `status='approved'`), que el `select` sigue
+ * trayendo `content` y `raw_text` —ahora como **SUPERSET**, no se perdió ninguna
+ * columna— y que la fila se resuelve de forma **inequívoca**.
+ * **Qué se sustituye:** `order('version') + limit(1)` (elección ARBITRARIA ante empate)
+ * por **selección DETERMINISTA** vía `pickCanonicalContentRow` — una aserción
+ * estrictamente más fuerte que la anterior, no una relajación.
+ */
+test('T-10 R-18 los filtros de la consulta de persona sin cambios; el `select` es SUPERSET y la fila se elige de forma determinista (F-113 R-21)', () => {
   const i = ROUTE.indexOf("from('buyer_personas')");
   assert.ok(i >= 0);
-  const query = ROUTE.slice(i, i + 400);
-  assert.match(query, /\.select\(\s*['"]content,\s*raw_text['"]\s*\)/);
+  const end = ROUTE.indexOf(';', i);
+  assert.ok(end > i, 'la consulta de persona debe terminar en `;`');
+  const query = ROUTE.slice(i, end + 1);
+
+  // --- INTENCIÓN PRESERVADA: qué filas son elegibles (byte-idéntico) ---------------
   assert.match(query, /\.eq\(\s*['"]client_id['"],\s*client_id\s*\)/);
   assert.match(query, /\.eq\(\s*['"]status['"],\s*['"]approved['"]\s*\)/);
   assert.match(
     query,
     /\.order\(\s*['"]version['"],\s*\{\s*ascending:\s*false\s*\}\s*\)/
   );
-  assert.match(query, /\.limit\(\s*1\s*\)/);
-  assert.match(query, /\.maybeSingle\(\)/);
+
+  // --- INTENCIÓN PRESERVADA: el `select` no perdió ninguna columna (SUPERSET) ------
+  const cols = (query.match(/\.select\(\s*['"]([^'"]*)['"]\s*\)/)?.[1] ?? '')
+    .split(',')
+    .map((c) => c.trim());
+  for (const c of ['content', 'raw_text']) {
+    assert.ok(
+      cols.includes(c),
+      `el select de persona perdió la columna \`${c}\``
+    );
+  }
+
+  // --- CRUCE DECLARADO: de `limit(1)` arbitrario a selección determinista ----------
+  assert.doesNotMatch(query, /\.limit\(\s*1\s*\)/);
+  assert.doesNotMatch(query, /\.maybeSingle\(\)/);
+  assert.match(
+    ROUTE,
+    /const\s+persona\s*=\s*pickCanonicalContentRow\s*\(\s*\(\s*personaRows\s*\?\?/
+  );
+  assert.match(
+    ROUTE,
+    /import\s*\{[\s\S]*?pickCanonicalContentRow[\s\S]*?\}\s*from\s*['"]@\/lib\/onboarding\/select-canonical-row['"]/
+  );
 });
 
 test('T-10 R-18 el bloque OFV de F-110/F-111 sigue intacto', () => {

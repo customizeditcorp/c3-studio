@@ -41,6 +41,14 @@ import {
   pickCanonicalOffer,
   type CanonicalOfferRow
 } from '@/lib/offers/select-canonical';
+// F-113 — operación ESPEJO de F-109 para `briefs`/`buyer_personas` (CL-099): ante
+// empate de `version` (SCS Cleaning tiene 3 personas y 4 briefs approved, TODOS v1)
+// la elección era ARBITRARIA y ganaba la fila hueca. El selector desempata por
+// riqueza de `content` SIN borrar ninguna fila (el dedup es del operador, R-23).
+import {
+  pickCanonicalContentRow,
+  type CanonicalContentRow
+} from '@/lib/onboarding/select-canonical-row';
 import { normalizeOffer } from '@/lib/gbp-slice/context';
 import type { RawOfferRow } from '@/lib/gbp-slice/types';
 // F-111 — seam puro del reparto del método (CL-094): expone el decision_frame que
@@ -275,28 +283,43 @@ export async function POST(request: NextRequest) {
       'social_content'
     ].includes(step);
     if (needsBrief) {
-      const { data: brief } = await supabase
+      // F-113 R-10/R-15/R-16 — traer TODOS los candidatos `approved` (sin `limit(1)`)
+      // y elegir el canónico con `pickCanonicalContentRow` (version desc → riqueza →
+      // updated_at desc → id asc). Filtros `client_id`/`status` INTACTOS: cambia cómo
+      // se desempata entre approved, nunca qué candidatos son elegibles. El `select`
+      // es un SUPERSET del anterior (`content, raw_text` + `id, version, updated_at`),
+      // porque el criterio de riqueza necesita inspeccionar `content`.
+      const { data: briefRows } = await supabase
         .from('briefs')
-        .select('content, raw_text')
+        .select('id, version, updated_at, content, raw_text')
         .eq('client_id', client_id)
         .eq('status', 'approved')
-        .order('version', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .order('version', { ascending: false });
+      const brief = pickCanonicalContentRow(
+        (briefRows ?? []) as (CanonicalContentRow & {
+          raw_text?: string | null;
+        })[]
+      );
       if (brief)
         contextChain +=
           '\n\n## BRIEF DEL NEGOCIO (APROBADO)\n' +
           (brief.raw_text || JSON.stringify(brief.content));
     }
     if (needsPersona) {
-      const { data: persona } = await supabase
+      // F-113 R-11/R-14/R-15/R-16 — ídem `briefs`. La fila elegida alimenta TANTO el
+      // blob `## BUYER PERSONA (APROBADO)` COMO `buildPersonaMethodBlock` (F-112):
+      // **una sola fila, un solo criterio**. Éste es el read-path que dejó la §6.1 de
+      // F-112 sin poder ser positiva (CL-098): el empate lo ganaba `e8e8c500`, la
+      // persona sin campos canónicos, y el helper emitía `''` correctamente.
+      const { data: personaRows } = await supabase
         .from('buyer_personas')
-        .select('content, raw_text')
+        .select('id, version, updated_at, content, raw_text')
         .eq('client_id', client_id)
         .eq('status', 'approved')
-        .order('version', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .order('version', { ascending: false });
+      const persona = pickCanonicalContentRow(
+        (personaRows ?? []) as (CanonicalContentRow & RawPersonaRow)[]
+      );
       if (persona) {
         contextChain +=
           '\n\n## BUYER PERSONA (APROBADO)\n' +
@@ -529,14 +552,20 @@ export async function POST(request: NextRequest) {
           // F-109 R-08 — preferir la buyer_persona `approved` del cliente para el
           // FK-linking; solo si no existe ninguna approved, fallback (DT-04) a la
           // última cualquier-status (preserva comportamiento previo = no-regresión).
-          let { data: lp } = await supabase
+          // F-113 R-12/R-14/R-15 — el desempate usa EL MISMO selector y LOS MISMOS
+          // filtros que el punto de contexto de arriba, de modo que el `persona_id`
+          // persistido apunte a la fila que REALMENTE alimentó el prompt. Divergir
+          // produciría una procedencia falsa y silenciosa. `select` superset (`id` +
+          // `version, updated_at, content`, necesarios para el criterio de riqueza).
+          const { data: personaFkRows } = await supabase
             .from('buyer_personas')
-            .select('id')
+            .select('id, version, updated_at, content')
             .eq('client_id', client_id)
             .eq('status', 'approved')
-            .order('version', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+            .order('version', { ascending: false });
+          let lp: { id: string } | null = pickCanonicalContentRow(
+            (personaFkRows ?? []) as CanonicalContentRow[]
+          );
           if (!lp) {
             ({ data: lp } = await supabase
               .from('buyer_personas')
@@ -584,14 +613,18 @@ export async function POST(request: NextRequest) {
           // F-109 R-09 — preferir el brief `approved` del cliente; fallback (DT-04)
           // a la última cualquier-status. Sin approved ni fallback → brief_id no se
           // setea (preserva el no-set previo, sin 422 aquí).
-          let { data: lb } = await supabase
+          // F-113 R-13/R-14/R-15 — mismo selector y mismos filtros que el punto de
+          // contexto ⇒ el `brief_id` persistido apunta al brief que alimentó el
+          // prompt. `select` superset (`id` + `version, updated_at, content`).
+          const { data: briefFkRows } = await supabase
             .from('briefs')
-            .select('id')
+            .select('id, version, updated_at, content')
             .eq('client_id', client_id)
             .eq('status', 'approved')
-            .order('version', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+            .order('version', { ascending: false });
+          let lb: { id: string } | null = pickCanonicalContentRow(
+            (briefFkRows ?? []) as CanonicalContentRow[]
+          );
           if (!lb) {
             ({ data: lb } = await supabase
               .from('briefs')
