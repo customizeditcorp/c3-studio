@@ -43,6 +43,13 @@ import {
 } from '@/lib/offers/select-canonical';
 import { normalizeOffer } from '@/lib/gbp-slice/context';
 import type { RawOfferRow } from '@/lib/gbp-slice/types';
+// F-111 — seam puro del reparto del método (CL-094): expone el decision_frame que
+// `normalizeOffer` no cubre y emite ambas secciones SOLO para los steps del reparto
+// (default-deny). Framework-free, `node --test`-able, byte-identidad por conducta.
+import {
+  buildOfvMethodLines,
+  normalizeDecisionFrame
+} from '@/lib/offers/method-context';
 // F-102 — seams puros: temperature controlada + parse con señal de usabilidad (`ok`)
 // para orquestar el retry-once. La orquestación vive acá (la ruta), los seams son
 // framework-free (`node --test`-ables).
@@ -327,6 +334,15 @@ export async function POST(request: NextRequest) {
           contextChain += '\nEntregables: ' + o.deliverables.join(' | ');
         if (o.social_proof.length)
           contextChain += '\nPrueba social: ' + o.social_proof.join(' | ');
+        // F-111 (R-10/R-16, CL-094) — reparto del método: las secciones 4 y 7 de la
+        // Oferta SmartLab llegan SOLO a los 5 steps que el canon indica. Seam puro
+        // anexado (no reescribe nada de arriba): devuelve '' fuera del reparto y
+        // cuando la OFV no aporta contenido ⇒ bloque byte-idéntico a post-F-110.
+        contextChain += buildOfvMethodLines({
+          step,
+          offer: o,
+          decisionFrame: normalizeDecisionFrame(offer as RawOfferRow)
+        });
       }
     }
     // F-105 (R-05): `userMessageBase` = todo el user message MENOS el cierre de idioma, para
