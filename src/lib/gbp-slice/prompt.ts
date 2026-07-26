@@ -109,6 +109,13 @@ export function buildGbpUserMessage(
   );
   lines.push('Big Promise: ' + offer.big_promise);
   if (offer.vehicle_name) lines.push('Vehículo: ' + offer.vehicle_name);
+  // F-110 (R-05, DT-2=SÍ) — simetría inversa: el GBP también recibe
+  // `vehicle_description` de la OFV (el content ya lo tenía). Línea condicional
+  // SEPARADA (no anexada a `Vehículo:`) para mantener esa línea byte-idéntica
+  // cuando el campo está presente y omitir si null/vacío (R-04). Campo de la OFV
+  // (offers), no del buyer → coherencia CL-092 preservada (R-12).
+  if (offer.vehicle_description)
+    lines.push('Descripción del vehículo: ' + offer.vehicle_description);
   if (offer.quick_win) lines.push('Quick Win: ' + offer.quick_win);
   if (offer.guarantee) lines.push('Garantía: ' + offer.guarantee);
   if (offer.deliverables.length)

@@ -317,6 +317,16 @@ export async function POST(request: NextRequest) {
           o.quick_win +
           '\nGarantia: ' +
           o.guarantee;
+        // F-110 (R-01..R-04) — alinear el set de consumo content↔GBP: sumar
+        // `deliverables`/`social_proof` al bloque OFV (formato idéntico a
+        // buildGbpUserMessage: etiqueta + join(' | ')). Guardadas por length →
+        // array vacío NO emite línea (R-04 degradación honesta) → caso vacío
+        // byte-idéntico a pre-F-110 (R-06). No se cablean los campos reservados a
+        // F-B/GATE-1 (R-08).
+        if (o.deliverables.length)
+          contextChain += '\nEntregables: ' + o.deliverables.join(' | ');
+        if (o.social_proof.length)
+          contextChain += '\nPrueba social: ' + o.social_proof.join(' | ');
       }
     }
     // F-105 (R-05): `userMessageBase` = todo el user message MENOS el cierre de idioma, para
