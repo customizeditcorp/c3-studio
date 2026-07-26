@@ -30,4 +30,9 @@ INTEGRACIÓN SMARTLAB:
 - Vehículo Único mencionado si tiene nombre de método
 - Trust factors del brief como prueba social
 
+PRINCIPIO DE HONESTIDAD (transversal a todo el output):
+- Inferir lo razonablemente inferible del giro/vertical del negocio
+- Omitir lo genuinamente ausente y seguir generando el resto del output completo. A diferencia de la OFV (artefacto interno), esto es copy publicable: NO escribas marcadores de faltante como [PENDIENTE] en el copy
+- JAMÁS fabricar hechos duros: testimonios, conteos de clientes, métricas antes/después, nombres propios de terceros, precios, plazos, descuentos, cupos y fechas límite
+
 OUTPUT: JSON con campos description (750 chars), short_description (250 chars), suggested_categories (primary + secondary), suggested_services (array), suggested_attributes (array).
