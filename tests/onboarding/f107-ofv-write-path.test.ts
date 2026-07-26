@@ -282,7 +282,9 @@ test('T-09 handleApproveOFV: status "approved" sigue presente (no-regresión R-1
 test('T-10 route rama ofv: invoca buildOfvWritePayload (R-06)', () => {
   // F-109: el FK-linking persona_id (prefer approved + fallback) añadió líneas
   // antes de buildOfvWritePayload → ventana ampliada. Intent intacto.
-  const body = sliceFrom(routeSrc, "step === 'ofv' && parsedContent", 1900);
+  // F-113: el selector canónico del FK persona_id añadió más líneas en la misma
+  // rama → ventana ampliada otra vez. La ASERCIÓN no cambia: solo la ventana.
+  const body = sliceFrom(routeSrc, "step === 'ofv' && parsedContent", 2500);
   assert.match(
     body,
     /Object\.assign\(\s*insertData,\s*buildOfvWritePayload\(parsedContent\)\.columns\s*\)/
@@ -296,7 +298,9 @@ test('T-10 route: ya NO existe el bucle inline `for (const k of [ ... big_promis
 test('T-10 route rama ofv: attachValidation + attachMethodGrounding + persona_id intactos (R-10/R-11)', () => {
   // F-109: FK-linking persona_id (prefer approved) creció la rama → ventana
   // ampliada. persona_id = lp.id y el 422 siguen intactos.
-  const body = sliceFrom(routeSrc, "step === 'ofv' && parsedContent", 2400);
+  // F-113: el selector canónico del FK persona_id creció la rama otra vez →
+  // ventana ampliada. Las ASERCIONES no cambian: solo la ventana.
+  const body = sliceFrom(routeSrc, "step === 'ofv' && parsedContent", 3000);
   assert.match(body, /attachValidation\(/);
   assert.match(body, /insertData\.persona_id = lp\.id/);
   // attachMethodGrounding se aplica justo después de la rama (R-10)

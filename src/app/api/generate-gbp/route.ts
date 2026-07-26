@@ -48,6 +48,16 @@ import {
 // F-089 R-06 — la regeneración repone `content_status='draft'`: el contenido nuevo
 // invalida cualquier aprobación previa (la aprobación siempre refleja el contenido actual).
 import { withDraftContentStatus } from '@/lib/gbp-slice/content-status';
+// F-113 (DT-05 = SÍ) — 5º read-path de la MISMA clase: este brief se elegía por
+// `created_at desc + limit(1)`, un criterio DISTINTO al de `generate-content`, de modo
+// que ante empate el GBP y los 8 outputs de contenido podían leer briefs distintos.
+// Con el selector compartido, "un cliente, un brief canónico" queda POR CONSTRUCCIÓN
+// (hoy acertaba por suerte). El GBP es además un asset PÚBLICO. Read-only, sin DDL.
+import {
+  pickCanonicalContentRow,
+  type CanonicalContentRow
+} from '@/lib/onboarding/select-canonical-row';
+import type { RawBriefRow } from '@/lib/gbp-slice/types';
 
 const AI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o';
 const GBP_GROUNDING_STEP = 'gbp_description'; // reuse the live grounded step (R-04)
@@ -178,17 +188,23 @@ export async function POST(request: NextRequest) {
       .eq('client_id', client_id)
       .maybeSingle();
 
-    // F-095 (R-01/R-03/R-12): load the most-recent APPROVED brief, scoped to client_id
-    // (tenant already validated above). Absent -> null -> BriefFacts {} (no-regression).
+    // F-095 (R-01/R-03/R-12): load the APPROVED brief, scoped to client_id (tenant
+    // already validated above). Absent -> null -> BriefFacts {} (no-regression).
     // Read-only: only `.select` on `briefs` (R-10).
-    const { data: brief } = await supabase
+    // F-113 (DT-05): bring ALL approved candidates (no `limit(1)`) and pick the
+    // canonical one with the SAME selector `generate-content` uses — version desc →
+    // content richness → updated_at desc → id asc. `client_id`/`status` filters
+    // untouched; `select` is a SUPERSET of the previous one (`version, updated_at`
+    // added, nothing removed). Still read-only: no delete, no update, no DDL.
+    const { data: briefRows } = await supabase
       .from('briefs')
-      .select('id, content, status, created_at')
+      .select('id, content, status, created_at, version, updated_at')
       .eq('client_id', client_id)
       .eq('status', 'approved')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .order('created_at', { ascending: false });
+    const brief = pickCanonicalContentRow(
+      (briefRows ?? []) as (CanonicalContentRow & RawBriefRow)[]
+    );
 
     const ctx = readGbpContext({
       client,
