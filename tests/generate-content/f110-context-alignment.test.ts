@@ -67,10 +67,33 @@ test('R-07 normalizeOffer sigue importado, NO reimplementado en route.ts', () =>
   assert.doesNotMatch(ROUTE, /const\s+normalizeOffer\s*=/);
 });
 
-/* ---- R-08: sin urgency/decision_frame en el bloque OFV (reservado F-B/GATE-1) ---- */
+/* ---- R-08 (RE-ANCLADO por F-111 / CL-094) --------------------------------------
+ * El assert original (`doesNotMatch(ROUTE_OFV_BLOCK, /urgency|decision_frame/i)`) era
+ * un MARCADOR FORWARD-DECLARADO: F-110 lo escribió sabiendo que F-B lo cruzaría
+ * (`specs/F-110/requirements.md` R-08: "reservado a F-B / GATE-1"). GATE-1 quedó
+ * resuelto en CL-094 y F-111 lo cruza POR DISEÑO.
+ *
+ * El invariante se PRESERVA y se refuerza (F-111 R-22): deja de ser "urgency y
+ * decision_frame nunca aparecen" y pasa a ser "sólo llegan por el reparto del método,
+ * nunca por emisión directa e incondicional en el route". La única vía es
+ * `buildOfvMethodLines`, que aplica `OFV_METHOD_FIELDS_BY_STEP` con default-deny.
+ *
+ * NO se deja pasar el assert viejo por coincidencia de naming camelCase
+ * (`decisionFrame` no matchea `decision_frame`): eso sería un FALSO PASS —
+ * el comportamiento que el assert guardaba cambió (F-111 R-23, `AGENTS.md §7`,
+ * `docs/verification.md §6`). Ver `specs/F-111/design.md §5`.
+ *
+ * La garantía FUERTE (byte-identidad para los steps fuera del reparto y para las OFV
+ * sin estos campos) es una claim de SALIDA, no de fuente: vive como test CONDUCTUAL
+ * en `tests/offers/f111-method-context.test.ts` (`assert.equal(..., '')`).
+ * -------------------------------------------------------------------------------- */
 
-test('R-08 el bloque OFV NO introduce urgency ni decision_frame', () => {
-  assert.doesNotMatch(ROUTE_OFV_BLOCK, /urgency|decision_frame/i);
+test('R-08→F-111 el route no emite urgency/decision_frame fuera del reparto', () => {
+  assert.match(ROUTE_OFV_BLOCK, /buildOfvMethodLines\s*\(/);
+  assert.doesNotMatch(
+    ROUTE_OFV_BLOCK,
+    /contextChain\s*\+=\s*['"]\\n(Urgencia|Decision Frame)/
+  );
 });
 
 /* ---- R-11: sin DDL en route.ts -------------------------------------------------- */
