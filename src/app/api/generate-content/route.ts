@@ -49,6 +49,12 @@ import {
   pickCanonicalContentRow,
   type CanonicalContentRow
 } from '@/lib/onboarding/select-canonical-row';
+// F-119 — seam de versión (R-01..R-06). Cierra la mitad en ESCRITURA del defecto que
+// F-113 §12.bis R-34 dejó declarado: el `INSERT` de este archivo nacía en el literal
+// `version: 1` ⇒ cada regeneración post-aprobación creaba un empate nuevo. El máximo es
+// por `(client_id, tabla)` sobre TODOS los `status` (R-05): aprobar es un flip in-place
+// que conserva la versión, así que draft y approved comparten namespace.
+import { nextVersion, type VersionedRow } from '@/lib/onboarding/next-version';
 import { normalizeOffer } from '@/lib/gbp-slice/context';
 import type { RawOfferRow } from '@/lib/gbp-slice/types';
 // F-111 — seam puro del reparto del método (CL-094): expone el decision_frame que
@@ -659,12 +665,16 @@ export async function POST(request: NextRequest) {
     if (save) {
       if (tableMap[step]) {
         const table = tableMap[step];
+        // F-119 R-07/R-08 — `insertData` ya NO lleva `version`. Es el payload COMPARTIDO
+        // por las dos ramas de escritura y ahí estaba el defecto latente (DT-04): la rama
+        // `update` lo enviaba tal cual y **pisaba con `1` la versión de la fila viva**.
+        // Ahora la `version` se añade SÓLO en la rama `insert` (desde el seam, más abajo);
+        // el `UPDATE` conserva por construcción la que la fila ya tenía.
         const insertData: Record<string, unknown> = {
           client_id,
           prompt_version_id: prompt.id,
           content: parsedContent,
-          status: 'draft',
-          version: 1
+          status: 'draft'
         };
         // La tabla `offers` no tiene columna `raw_text` (el raw persiste en
         // `content.raw_text`); solo `briefs`/`buyer_personas` la poseen.
@@ -766,11 +776,14 @@ export async function POST(request: NextRequest) {
           insertData.content as Record<string, unknown>,
           methodGrounding
         );
-        // F-097 R-06/R-07/R-08 — regenerar = UPDATE del draft vivo (conserva
-        // `id`/`version`), no INSERT acumulativo. Aislamiento por `client_id`
-        // (R-14; tenant ya verificado arriba). A lo sumo 1 draft por
-        // (client_id, step). Si no hay draft vivo (o la última está `approved`)
-        // → INSERT como antes (primera generación / regeneración post-aprobación).
+        // F-097 R-06/R-07/R-08 — regenerar = UPDATE del draft vivo (conserva `id`, y
+        // desde F-119 R-07 también la `version` — antes el comentario lo AFIRMABA y el
+        // código lo desmentía: enviaba `insertData` con `version: 1` dentro), no INSERT
+        // acumulativo. Aislamiento por `client_id` (R-14; tenant ya verificado arriba).
+        // A lo sumo 1 draft por (client_id, step). Si no hay draft vivo (o la última
+        // está `approved`) → INSERT como antes (primera generación / regeneración
+        // post-aprobación). `resolveWriteMode` y esta consulta quedan con la MISMA
+        // semántica (F-119 R-16): última fila por `created_at`, cualquier `status`.
         const { data: latest } = await supabase
           .from(table)
           .select('id, status')
@@ -781,6 +794,33 @@ export async function POST(request: NextRequest) {
         const mode = resolveWriteMode(
           latest as { id: string; status: string } | null
         );
+        // F-119 R-08/R-09 ⭐ — la `version` del INSERT sale del seam `nextVersion`
+        // (`max(version) + 1` por `(client_id, tabla)`, TODOS los `status`) en lugar del
+        // literal `1`. Éste era el ÚNICO call-site que producía empates (G-2): aprobar →
+        // regenerar cae en `insert` y volvía a nacer en `v1`, empatado con la aprobada.
+        // La consulta se emite por `.from(table)` — la VARIABLE del `tableMap`, NUNCA un
+        // literal (R-09): `f113-source-guards` T-10 cuenta las sentencias
+        // `.from('<tabla>')` y exige exactamente 1 fallback por tabla.
+        // Sólo se consulta en la rama `insert`: el `UPDATE` no toca la `version`.
+        // Límite declarado (R-41 / DT-06): dos escrituras CONCURRENTES pueden calcular el
+        // mismo `max+1` ⇒ degrada al empate previo a F-119, que `pickCanonicalContentRow`
+        // / `pickCanonicalOffer` resuelven determinísticamente. Cerrarlo exige DDL, fuera
+        // de alcance. Por eso el tie-break NO se retira (R-14).
+        // F-119 R-07 ⭐ — la clave `version` se añade al payload SÓLO dentro de esta rama.
+        // En `mode === 'update'` NUNCA existe ⇒ el `.update(insertData)` de abajo no puede
+        // pisar la versión de la fila viva. Sin esto, F-119 crearía el empate que viene a
+        // cortar: un draft nacido en `v5` volvería a `v1` en la próxima regeneración, que es
+        // el camino MÁS frecuente. (Ésta es la única asignación de `insertData.version` del
+        // archivo, y está dentro del `if` — lo que la hace inspeccionable por source-guard.)
+        if (mode.mode === 'insert') {
+          const { data: versionRows } = await supabase
+            .from(table)
+            .select('version')
+            .eq('client_id', client_id);
+          insertData.version = nextVersion(
+            (versionRows ?? []) as VersionedRow[]
+          );
+        }
         const { data, error } =
           mode.mode === 'update'
             ? await supabase
