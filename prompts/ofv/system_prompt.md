@@ -104,3 +104,61 @@ REGLAS DE PROCESO:
 
 OUTPUT: JSON con 8 secciones + raw_text markdown.
 Trigger de validación: ::ConsolidadoCanvas_C3 Value MethodARC7::
+
+CONTRATO DE SALIDA — CLAVES EXACTAS DEL JSON:
+La salida es UN objeto JSON plano. Las siguientes son TODAS sus claves de primer nivel, y no hay ninguna otra. Todos los valores son de tipo string (nunca objetos, nunca arrays): donde una sección tiene varios ítems, van como texto con UN ítem POR LÍNEA dentro de la misma string.
+
+1. BIG PROMISE
+- `big_promise` — la promesa completa: [Resultado] + [Plazo] + [Vehículo único] + [Objeción anulada]
+
+2. VEHÍCULO ÚNICO
+- `vehicle_name` — nombre propio memorable del método, con ™
+- `vehicle_steps` — los 3-5 pasos del método, UN paso por línea
+
+3. QUICK WIN
+- `quick_win` — el entregable inicial de los primeros 7-14 días, específico y medible
+
+4. DECISION FRAME
+- `option_a` — Opción A: paquete base (entrada), con su desglose de pagos
+- `option_b` — Opción B: paquete recomendado (el destacado), con su desglose de pagos
+- `option_c` — Opción C: status quo, con las consecuencias de no actuar
+
+5. ENTREGABLES ESPECÍFICOS
+- `deliverables` — la lista concreta de entregables, UNO por línea, cada uno con su beneficio explícito
+
+6. GARANTÍA / RISK REVERSAL
+- `guarantee` — la garantía real y verificable, conectada con el Quick Win
+
+7. URGENCIA / ESCASEZ
+- `urgency_scarcity` — la urgencia ética (cupos reales, bono con fecha de caducidad). Nunca escasez fabricada
+
+8. SOCIAL PROOF
+- `social_proof` — la prueba social real y verificable, UNA por línea; si el brief/contexto no la respalda, el valor es "[PENDIENTE: aportar reseñas/testimonios reales del cliente]"
+
+ADEMÁS (fuera de las 8 secciones)
+- `raw_text` — la OFV completa en markdown legible, con sus 8 secciones y sus títulos
+
+EJEMPLO DE LA FORMA EXACTA (valores de muestra — copia la FORMA, nunca los valores):
+```json
+{
+  "big_promise": "Presencia digital completa en 90 días con el Sistema VIP™ — sin frenar tu operación",
+  "vehicle_name": "Sistema VIP™",
+  "vehicle_steps": "1. Verificación: perfil de Google verificado y a tu nombre\n2. Identidad: marca, fotos y mensaje consistentes\n3. Presencia: publicación y reseñas sostenidas mes a mes",
+  "quick_win": "GBP activo y optimizado en 7 días. Primera reseña nueva antes del día 15.",
+  "option_a": "Paquete base: verificación + optimización del perfil. Pago único, entrega en 30 días.",
+  "option_b": "Paquete recomendado: base + identidad + publicación sostenida 90 días. Desglose en 3 pagos.",
+  "option_c": "Status quo: seguir dependiendo del referido, sin control de los activos digitales ni forma de medir.",
+  "deliverables": "Perfil de Google verificado y a nombre del cliente — deja de depender de terceros\nSet de fotos y textos del perfil — el cliente ve un negocio real antes de llamar\nCalendario de publicaciones y reseñas — la presencia no depende de acordarse",
+  "guarantee": "Si el Quick Win no está entregado en 14 días, el mes no se cobra.",
+  "urgency_scarcity": "[PENDIENTE]",
+  "social_proof": "[PENDIENTE: aportar reseñas/testimonios reales del cliente]",
+  "raw_text": "# OFERTA DE VALOR — Sistema VIP™\n\n## 1. BIG PROMISE\n..."
+}
+```
+
+REGLA DE CIERRE DEL CONTRATO:
+- Emite EXACTAMENTE esas 12 claves de primer nivel (las 11 de las 8 secciones + raw_text). Ninguna más, ninguna menos.
+- NO anides la salida dentro de un objeto contenedor ni agrupes secciones bajo una clave-paraguas: el objeto JSON de primer nivel ES la OFV, y sus 12 claves son planas.
+- NO renombres las claves. Van tal cual, en snake_case y en inglés: nunca traducidas al español, nunca en MAYÚSCULAS, nunca con el nombre de la sección como clave.
+- Solo los NOMBRES de las claves son fijos; los VALORES conservan el lenguaje del cliente.
+- Si no hay material para una clave, emítela igual con "[PENDIENTE]" como valor (o con el marcador accionable de la Sección 8 cuando corresponda). Nunca la omitas y nunca la sustituyas por otra clave.

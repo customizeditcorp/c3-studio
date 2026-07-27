@@ -70,7 +70,6 @@ interface PersonaFields {
   profession: string;
   education: string;
   lifestyle: string;
-  values: string;
   social_media: string;
   search_method: string;
   tech_comfort: string;
@@ -78,21 +77,17 @@ interface PersonaFields {
   professional_goal: string;
   provider_values: string;
   revenue_target: string;
-  expansion: string;
   main_pain: string;
   secondary_pains: string;
   hidden_costs: string;
-  emotional_impact: string;
   action_trigger: string;
   dream_result: string;
   past_attempts: string;
   why_failed: string;
-  provider_frustrations: string;
   awareness_level: string;
   objection_price: string;
   objection_trust: string;
   objection_time: string;
-  fears: string;
   if_nothing: string;
   if_competitor: string;
   if_c3: string;
@@ -267,7 +262,6 @@ const emptyPersona: PersonaFields = {
   profession: '',
   education: '',
   lifestyle: '',
-  values: '',
   social_media: '',
   search_method: '',
   tech_comfort: '',
@@ -275,21 +269,17 @@ const emptyPersona: PersonaFields = {
   professional_goal: '',
   provider_values: '',
   revenue_target: '',
-  expansion: '',
   main_pain: '',
   secondary_pains: '',
   hidden_costs: '',
-  emotional_impact: '',
   action_trigger: '',
   dream_result: '',
   past_attempts: '',
   why_failed: '',
-  provider_frustrations: '',
   awareness_level: '',
   objection_price: '',
   objection_trust: '',
   objection_time: '',
-  fears: '',
   if_nothing: '',
   if_competitor: '',
   if_c3: ''
@@ -1585,7 +1575,8 @@ export default function BriefPage() {
           <TabsContent value='persona' className='mt-4 max-w-3xl space-y-4'>
             <div className='flex items-center justify-between'>
               <h3 className='text-sm font-medium'>
-                Buyer Persona completa (construida desde el Brief)
+                Buyer Persona completa (el AI la genera usando el Brief aprobado
+                como contexto)
               </h3>
               {personaRecord && <StatusBadge status={personaRecord.status} />}
             </div>
@@ -2076,9 +2067,9 @@ export default function BriefPage() {
 
                 <BlockCard title='8. Social Proof'>
                   <Field
-                    label='Testimonios con métricas antes/después'
+                    label='Prueba social real y verificable'
                     dot='manual'
-                    hint='Basado en casos de éxito del Brief — amplía con métricas'
+                    hint='Solo lo que el Brief o el contexto respalden — nunca inventar'
                   >
                     <Textarea
                       value={ofvFields.social_proof}
@@ -2086,7 +2077,7 @@ export default function BriefPage() {
                         updateOFV('social_proof', e.target.value)
                       }
                       rows={3}
-                      placeholder='Nombre del cliente, industria, resultado...'
+                      placeholder='Enlace a reseñas reales, o [PENDIENTE: aportar reseñas/testimonios reales del cliente]'
                     />
                   </Field>
                 </BlockCard>

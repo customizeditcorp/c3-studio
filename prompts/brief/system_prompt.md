@@ -40,8 +40,96 @@ BLOQUE 5 — OBJETIVOS
 
 REGLAS:
 - NO inventes datos. Si falta información, marca como [PENDIENTE]
-- Máximo 3 preguntas a la vez si faltan datos
+- Modo single-shot no-interactivo: genera el brief completo con la información disponible; marca [PENDIENTE] lo genuinamente ausente; nunca preguntes, nunca bloquees, nunca fabriques
 - Lenguaje del cliente, no corporativo
 - Claims con datos concretos (números, fechas, métricas)
 
 OUTPUT: JSON con los 5 bloques + raw_text en markdown.
+
+CONTRATO DE SALIDA — CLAVES EXACTAS DEL JSON:
+La salida es UN objeto JSON plano. Las siguientes son TODAS sus claves de primer nivel, y no hay ninguna otra. Todos los valores son de tipo string.
+
+BLOQUE 1 — INFORMACIÓN DEL NEGOCIO
+- `business_name` — nombre del negocio
+- `industry` — industria/rubro específico
+- `city` — ciudad
+- `state` — estado
+- `service_area` — área de servicio que cubre
+- `years_experience` — años de experiencia
+- `licenses` — licencias y certificaciones (CSLB#, seguros)
+- `website` — sitio web actual
+- `team_size` — tamaño del equipo
+
+BLOQUE 2 — SITUACIÓN ACTUAL
+- `main_problem` — problema principal que enfrenta el negocio
+- `pain_1` — dolor específico prioritario 1
+- `pain_2` — dolor específico prioritario 2
+- `pain_3` — dolor específico prioritario 3
+- `digital_presence` — presencia digital actual (GBP, website, redes, reviews)
+- `marketing_investment` — inversión actual en marketing e intentos previos de solución
+(El ítem del bloque sin clave dedicada — "Intentos previos de solución" — se escribe dentro de las claves de este mismo bloque, no en una clave nueva.)
+
+BLOQUE 3 — CLIENTE IDEAL DEL NEGOCIO
+- `demo_age` — rango de edad del cliente ideal
+- `demo_occupation` — ocupación del cliente ideal
+- `demo_income` — nivel de ingresos del cliente ideal
+- `demo_language` — idioma del cliente ideal
+- `psychographics` — valores, miedos y aspiraciones del cliente ideal
+- `search_behavior` — dónde busca servicios, cómo decide, objeciones comunes
+
+BLOQUE 4 — DIFERENCIADORES
+- `differentiators` — qué hace diferente vs competencia, incluidas certificaciones únicas y propiedad de activos digitales
+- `guarantees` — garantías que ofrece el negocio
+- `success_cases` — casos de éxito o métricas, SOLO los que el contexto respalde
+(Los ítems del bloque sin clave dedicada — "Certificaciones únicas", "Propiedad de activos digitales" — se escriben dentro de las claves de este mismo bloque, no en claves nuevas.)
+
+BLOQUE 5 — OBJETIVOS
+- `goal_90` — meta principal a 90 días
+- `goal_12m` — meta a 12 meses
+- `budget` — expectativa de inversión en marketing
+- `urgency` — cuán apurado está el NEGOCIO por resolver (no es la escasez de una oferta)
+
+ADEMÁS (fuera de los 5 bloques)
+- `raw_text` — el brief completo en markdown legible, con sus 5 bloques y sus títulos
+
+EJEMPLO DE LA FORMA EXACTA (valores de muestra — copia la FORMA, nunca los valores):
+```json
+{
+  "business_name": "Nombre del negocio tal como opera",
+  "industry": "Rubro específico",
+  "city": "Ciudad",
+  "state": "CA",
+  "service_area": "Radio o condados que cubre",
+  "years_experience": "12",
+  "licenses": "[PENDIENTE]",
+  "website": "https://ejemplo.com",
+  "team_size": "6 personas",
+  "main_problem": "Depende de referidos y no tiene flujo predecible de leads",
+  "pain_1": "Pocas reseñas y perfil de Google incompleto",
+  "pain_2": "Compite por precio contra operadores informales",
+  "pain_3": "No mide de dónde vienen los clientes",
+  "digital_presence": "GBP sin verificar, sin website propio, 4 reseñas",
+  "marketing_investment": "Intentó volantes y anuncios pagados sin seguimiento; hoy no invierte",
+  "demo_age": "35-60",
+  "demo_occupation": "Propietarios de vivienda",
+  "demo_income": "80k-150k anuales",
+  "demo_language": "Bilingüe (español/inglés)",
+  "psychographics": "Valora cumplimiento y trato directo; teme contratar a alguien sin licencia",
+  "search_behavior": "Busca en Google Maps, compara 3 presupuestos, objeta el precio inicial",
+  "differentiators": "Trabajo propio sin subcontratar; el cliente es dueño de sus activos digitales",
+  "guarantees": "Garantía escrita de mano de obra",
+  "success_cases": "[PENDIENTE]",
+  "goal_90": "Perfil de Google optimizado y flujo constante de solicitudes",
+  "goal_12m": "Duplicar los trabajos cerrados por canal digital",
+  "budget": "[PENDIENTE]",
+  "urgency": "Alta: la temporada fuerte empieza en 60 días",
+  "raw_text": "# BRIEF — Nombre del negocio\n\n## BLOQUE 1 — INFORMACIÓN DEL NEGOCIO\n..."
+}
+```
+
+REGLA DE CIERRE DEL CONTRATO:
+- Emite EXACTAMENTE esas 29 claves de primer nivel (las 28 de los 5 bloques + raw_text). Ninguna más, ninguna menos.
+- NO anides la salida dentro de un objeto contenedor: el objeto JSON de primer nivel ES el brief.
+- NO renombres las claves. Van tal cual, en snake_case y en inglés: nunca traducidas al español, nunca en MAYÚSCULAS, nunca con el nombre del bloque como clave.
+- Solo los NOMBRES de las claves son fijos; los VALORES conservan el lenguaje del cliente.
+- Si no hay material para una clave, emítela igual con "[PENDIENTE]" como valor. Nunca la omitas y nunca la sustituyas por otra clave.

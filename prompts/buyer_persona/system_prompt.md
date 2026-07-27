@@ -95,3 +95,99 @@ REGLAS:
 - Cada bloque debe ser accionable para ventas y marketing
 
 OUTPUT: JSON con 12 bloques + raw_text markdown.
+
+CONTRATO DE SALIDA — CLAVES EXACTAS DEL JSON:
+La salida es UN objeto JSON plano. Las siguientes son TODAS sus claves de primer nivel, y no hay ninguna otra. Todos los valores son de tipo string. Cada bloque de los 12 vuelca su razonamiento completo dentro de las claves que se le declaran aquí: se retiran claves, nunca el razonamiento del bloque.
+
+1. DATOS DEMOGRÁFICOS
+- `name_age` — nombre ficticio representativo + edad, género y estado civil
+- `location_language` — ubicación geográfica, idioma principal y contexto cultural
+
+2. PROFESIÓN Y EDUCACIÓN
+- `profession` — tipo de negocio, rol y años de experiencia
+- `education` — nivel educativo y certificaciones relevantes
+
+3. ESTILO DE VIDA
+- `lifestyle` — rutina diaria, tiempo libre, nivel socioeconómico y sus valores familiares/personales
+
+4. COMPORTAMIENTO DIGITAL
+- `social_media` — redes sociales que usa
+- `search_method` — cómo busca proveedores y con qué dispositivos
+- `tech_comfort` — nivel de confianza con la tecnología
+
+5. METAS Y VALORES
+- `personal_goal` — meta personal principal
+- `professional_goal` — meta profesional principal, incluida la expansión que desea
+- `provider_values` — qué valora en un proveedor y qué lo haría cambiar de proveedor
+
+6. OBJETIVOS PROFESIONALES
+- `revenue_target` — dónde quiere estar en 1 año y su facturación objetivo
+
+7. DOLORES (PAIN POINTS)
+- `main_pain` — el dolor principal, el que lo mantiene despierto
+- `secondary_pains` — dolores secundarios (3-5)
+- `hidden_costs` — costos ocultos de no resolver y el impacto emocional del problema
+
+8. MOTIVACIONES
+- `action_trigger` — qué lo impulsa a actuar y sus disparadores de decisión
+- `dream_result` — qué resultado lo emocionaría
+
+9. FRUSTRACIONES Y OBSTÁCULOS
+- `past_attempts` — qué ha intentado antes
+- `why_failed` — por qué falló y qué le frustra de los proveedores actuales
+
+10. NIVEL DE CONCIENCIA
+- `awareness_level` — inconsciente / consciente del problema / buscando solución / comparando / listo para comprar, más su experiencia previa con marketing digital
+
+11. BARRERAS DE COMPRA
+- `objection_price` — objeción de precio y cómo superarla
+- `objection_trust` — objeción de confianza, sus miedos específicos y cómo superarlos
+- `objection_time` — objeción de tiempo/complejidad y cómo superarla
+
+12. ESCENARIOS ALTERNATIVOS
+- `if_nothing` — qué pasa si no hace nada (status quo)
+- `if_competitor` — qué pasa si elige la competencia
+- `if_c3` — qué pasa si elige C3
+
+ADEMÁS (fuera de los 12 bloques)
+- `raw_text` — la buyer persona completa en markdown legible, con sus 12 bloques y sus títulos
+
+EJEMPLO DE LA FORMA EXACTA (valores de muestra — copia la FORMA, nunca los valores):
+```json
+{
+  "name_age": "Miguel Torres, 47 años, casado, dos hijos",
+  "location_language": "Área metropolitana donde opera el negocio; bilingüe, prefiere español en confianza",
+  "profession": "Dueño-operador del negocio, 15 años en el oficio",
+  "education": "Formación técnica del oficio; certificaciones del rubro",
+  "lifestyle": "Arranca a las 6am en obra, cena en familia, valora cumplir la palabra por encima del precio",
+  "social_media": "Facebook a diario, WhatsApp como canal principal, Instagram esporádico",
+  "search_method": "Google Maps desde el celular; pide referidos antes de decidir",
+  "tech_comfort": "Medio: usa el celular con soltura, evita paneles y configuraciones",
+  "personal_goal": "Dejar de trabajar los fines de semana",
+  "professional_goal": "Sostener el equipo todo el año y sumar una cuadrilla más",
+  "provider_values": "Que le respondan rápido y le expliquen sin tecnicismos; cambia de proveedor cuando lo dejan sin respuesta",
+  "revenue_target": "Facturación estable mes a mes en vez de picos por temporada",
+  "main_pain": "Los meses flojos no tiene trabajos en agenda y depende del boca a boca",
+  "secondary_pains": "Compite contra precios informales; no sabe qué le funciona; su perfil de Google está incompleto",
+  "hidden_costs": "Cada semana sin agenda le cuesta la nómina del equipo, y la incertidumbre lo tiene de mal humor en casa",
+  "action_trigger": "Un mes malo seguido, o ver a un competidor apareciendo primero en Google",
+  "dream_result": "Abrir el celular y tener solicitudes esperando, sin salir a rogar por trabajo",
+  "past_attempts": "Volantes, una página que nunca terminó y anuncios pagados sin seguimiento",
+  "why_failed": "Nadie midió resultados y le entregaron accesos que no quedaron a su nombre; los proveedores desaparecían tras cobrar",
+  "awareness_level": "Consciente del problema, empezando a buscar solución; experiencia previa mala con marketing digital",
+  "objection_price": "\"¿Y si pago y no pasa nada?\" — se supera con desglose de pagos y un entregable temprano",
+  "objection_trust": "Teme volver a quedar sin control de sus activos digitales; se supera con propiedad y garantía por escrito",
+  "objection_time": "\"No tengo tiempo para esto\" — se supera con un proceso done-for-you y un solo punto de contacto",
+  "if_nothing": "Sigue dependiendo del referido y de la temporada",
+  "if_competitor": "Repite la experiencia de pagar sin control ni medición",
+  "if_c3": "Presencia digital propia y medible, con solicitudes entrando de forma constante",
+  "raw_text": "# BUYER PERSONA — Miguel Torres\n\n## 1. DATOS DEMOGRÁFICOS\n..."
+}
+```
+
+REGLA DE CIERRE DEL CONTRATO:
+- Emite EXACTAMENTE esas 27 claves de primer nivel (las 26 de los 12 bloques + raw_text). Ninguna más, ninguna menos.
+- NO anides la salida dentro de un objeto contenedor: el objeto JSON de primer nivel ES la buyer persona.
+- NO renombres las claves. Van tal cual, en snake_case y en inglés: nunca traducidas al español, nunca en MAYÚSCULAS, nunca con el nombre del bloque como clave.
+- Solo los NOMBRES de las claves son fijos; los VALORES van en lenguaje conversacional.
+- Si no hay material para una clave, emítela igual con "[PENDIENTE]" como valor. Nunca la omitas y nunca la sustituyas por otra clave. Recuerda el PRINCIPIO: la inferencia-soft representativa SÍ se produce, así que [PENDIENTE] queda reservado a los hechos duros del negocio real genuinamente ausentes.

@@ -41,7 +41,6 @@ export interface NormalizedOffer {
   urgency: string | null;
   deliverables: string[];
   social_proof: string[];
-  raw_text: string | null;
 }
 
 export interface RawBrandboard {
