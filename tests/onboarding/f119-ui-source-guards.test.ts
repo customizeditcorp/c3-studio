@@ -419,17 +419,76 @@ test('T-10 ⭐ R-29 el aviso NO deshabilita nada: cero `disabled` nuevos atados 
     'R-29: la divergencia la creó el sistema, no el operador — castigarlo con un gate ' +
       'es peor que el defecto (anti-sobre-corrección, AGENTS.md §8.2)'
   );
-  // El conteo de `disabled` no creció respecto de `2c072b6`.
-  const base = execFileSync('git', ['show', `2c072b6:${PAGE_REL}`], {
+  /**
+   * **⤫ F-120 — RE-ANCLAJE DE UN SOLO `assert` (no debilitado; ENDURECIDO). CRUCE **NO
+   * PREVISTO** POR EL SPEC — declarado, no silenciado.**
+   *
+   * `specs/F-120/` (R-41, `design.md` §10.3 fila 5) preveía que este archivo quedara **verde
+   * sin una sola edición**, razonando sobre las **consultas** y la **procedencia** — que
+   * F-120 efectivamente no toca. Lo que el spec no vio es este **contador**: F-120 ejecuta
+   * el traslado del Brandboard fuera de la pantalla del núcleo (R-23, CL-106), y el
+   * `TabsTrigger value='brandboard' disabled={!ofvApproved}` que se va **se lleva un
+   * `disabled` consigo** ⇒ la igualdad estricta contra `2c072b6` se rompe **mecánicamente**,
+   * por 11 ≠ 12. Mismo modo de fallo que H-1/H-2: el **vehículo** del guard se volvió stale,
+   * no su intención.
+   *
+   * **La intención se preserva ENTERA y se endurece.** El mensaje original lo dice literal:
+   * *"F-119 no puede **AÑADIR** ningún gate nuevo a la superficie"* — es un guard
+   * **anti-adición**, contra castigar al operador con un gate por una divergencia que creó
+   * el sistema (anti-sobre-corrección, AGENTS.md §8.2). Eso sigue exigido, y ahora de forma
+   * más precisa que una igualdad:
+   *
+   *   1. el conteo **NO CRECE** (la intención literal: cero gates nuevos);
+   *   2. la **única** baja autorizada es el `disabled` del tab Brandboard, y se comprueba
+   *      **nominalmente** — no por aritmética: el trigger ya no está en el origen y sí está
+   *      en el destino con su gate intacto (`f120-brandboard-move` T-11 /
+   *      `f117-declarations` T-12 R-29 lo exigen del otro lado);
+   *   3. **ninguna otra** baja: cualquier `disabled` que desaparezca de la superficie del
+   *      núcleo — la cadena `briefApproved → personaApproved`, los botones de generar,
+   *      guardar borrador o aprobar — deja esto **rojo**.
+   *
+   * **Ancla FIJA `76e7637`, nunca `HEAD`** (CL-107 / F-118 H-5): verde en el working tree
+   * **sin commit**.
+   */
+  const base = execFileSync('git', ['show', `76e7637:${PAGE_REL}`], {
     cwd: REPO,
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024
   });
-  assert.equal(
-    contar(PAGE_CODE, /disabled/g),
-    contar(stripComments(base), /disabled/g),
-    'F-119 no puede añadir ningún gate nuevo a la superficie'
+  const BASE_CODE = stripComments(base);
+  const ahora = contar(PAGE_CODE, /disabled/g);
+  const antes = contar(BASE_CODE, /disabled/g);
+  assert.ok(
+    ahora <= antes,
+    `la superficie del núcleo GANÓ un gate (${antes} → ${ahora}): F-119 R-29 prohíbe ` +
+      'añadir cualquier `disabled` nuevo'
   );
+  assert.equal(
+    ahora,
+    antes - 1,
+    '⤫ F-120: la única baja autorizada es el `disabled` del tab Brandboard trasladado ' +
+      '(R-23). Cualquier otra pérdida de gate en la superficie del núcleo — la cadena ' +
+      '`briefApproved` → `personaApproved`, generar, guardar borrador o aprobar — es una ' +
+      'regresión (R-41)'
+  );
+  // Y esa baja es NOMINALMENTE la del Brandboard, no una aritmética que cuadra por azar.
+  assert.match(
+    BASE_CODE,
+    /<TabsTrigger\s+value='brandboard'\s+disabled=\{\s*!ofvApproved\s*\}/,
+    'en `76e7637` el gate del Brandboard vivía en la superficie del núcleo'
+  );
+  assert.equal(
+    (PAGE_CODE.match(/brandboard/gi) ?? []).length,
+    0,
+    'tras el traslado, la superficie del núcleo no puede conservar ni una referencia'
+  );
+  // Los gates que SÍ son del núcleo siguen intactos, uno por uno.
+  for (const gate of ['!briefApproved', '!personaApproved']) {
+    assert.ok(
+      PAGE_CODE.includes(`disabled={${gate}}`),
+      `la cadena de gates del núcleo perdió \`${gate}\``
+    );
+  }
 });
 
 test('T-10 ⭐ R-30 el aviso no promueve, no copia, no aprueba y no escribe NADA', () => {

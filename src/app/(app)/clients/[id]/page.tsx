@@ -46,12 +46,26 @@ import {
   type DeliverableLinkAction,
   type DeliverableSnapshotEnvelope
 } from '@/lib/clients/deliverable-public';
+// F-120 (a) — R-03: la ficha resuelve la procedencia de la OFV con EL MISMO SEAM que
+// F-119 usa en la superficie de onboarding. **Prohibido** importar `pickCanonicalOffer`
+// / `pickCanonicalContentRow` / `contentRichness` / `select-canonical` directamente
+// (misma prohibición que `f113-source-guards` T-11 impone sobre el núcleo): si la ficha
+// resolviera con criterio propio, emitiría PROCEDENCIA FALSA.
+import {
+  resolveGenerationSource,
+  type GenerationCandidateRow,
+  type GenerationSourceResult
+} from '@/lib/onboarding/generation-source';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { Icons } from '@/components/icons';
 import { ClientAssetHub } from './client-asset-hub';
+import { OfvPanel } from './ofv-panel';
+// F-120 (b) — el Brandboard sale de la pantalla del núcleo (CL-106) y llega acá, donde
+// el gate se DERIVA de la lectura canónica que esta misma feature trae (R-25).
+import { BrandboardTab } from '@/components/brandboard/brandboard-tab';
 
 // F-087 (R-09) — etiquetas legibles del lifecycle + origen del activo GBP (read-only).
 const GBP_LIFECYCLE_LABELS: Record<string, string> = {
@@ -89,13 +103,22 @@ type Client = {
 
 export default function ClientDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { tenantId, loading: userLoading } = useUser();
+  // F-120 (b) — R-27/R-28: el destino del Brandboard debe proveer `clientId`, `tenantId`
+  // y `userId`; `user` ya está expuesto por `UserContextValue`, sólo faltaba desestructurarlo.
+  const { tenantId, user, loading: userLoading } = useUser();
   const supabase = createSupabaseClient();
   const router = useRouter();
 
   const [client, setClient] = useState<Client | null>(null);
   const [loading, setLoading] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
+
+  // F-120 (a) — R-02/R-14: el resultado del seam de procedencia de la OFV. Contiene la
+  // FILA CANÓNICA (la que alimenta la generación) y el estado
+  // `aligned` / `diverged` / `none-approved`. `null` mientras carga.
+  const [ofvSource, setOfvSource] = useState<GenerationSourceResult | null>(
+    null
+  );
 
   // F-088 — UI de transición de estado (DT-03: dropdown + confirmación + write-path
   // manual client-side). `pendingStatus` = destino seleccionado a la espera de confirmar;
@@ -172,7 +195,8 @@ export default function ClientDetailPage() {
       { data: napData },
       { data: briefData },
       { data: personaData },
-      { data: ofvData },
+      { data: ofvApprovedRows },
+      { data: ofvEditableRow },
       { data: gbpData },
       { data: photosData },
       { data: previewData },
@@ -210,11 +234,39 @@ export default function ClientDetailPage() {
         .eq('status', 'approved')
         .limit(1)
         .maybeSingle(),
+      // ------------------------------------------------------------------ //
+      // F-120 (a) — R-02/R-03/R-04: la ficha pasa de CHEQUEAR EXISTENCIA a
+      // MOSTRAR CONTENIDO de la OFV ⇒ obliga al selector canónico.
+      // ------------------------------------------------------------------ //
+      // Antes: `.select('status').eq('status','approved').limit(1).maybeSingle()`.
+      // Eso es correcto para existencia e INACEPTABLE para mostrar contenido: sin
+      // `ORDER BY` total, la ficha mostraría UNA fila y el generador consumiría OTRA
+      // — la procedencia falsa que F-119 acaba de eliminar. Caso real y armado
+      // (§G-2): JD Valley tiene DOS offers `approved` en `version = 1`, y la
+      // SHADOW VACÍA `b106ad61` (1 clave, sin `big_promise`) es la MÁS RECIENTE por
+      // `updated_at` ⇒ un `.limit(1)` sin orden, o un `updated_at desc`, mostrarían
+      // la OFV VACÍA. `pickCanonicalOffer` elige `a6c66d5c` por riqueza, no por fecha.
+      //
+      // Candidatos `approved`: MISMOS filtros que el generador, SIN `limit(1)` ni
+      // `maybeSingle()`, proyección superset de lo que el selector necesita
+      // (+ `approved_at` para la identidad de la fila). Espejo literal de la consulta
+      // que F-119 dejó en la superficie de onboarding.
       supabase
         .from('offers')
-        .select('status')
+        .select('id, version, updated_at, content, big_promise, approved_at')
         .eq('client_id', id)
         .eq('status', 'approved')
+        .order('version', { ascending: false }),
+      // Fila EDITABLE (R-15): los MISMOS filtros que la superficie de onboarding
+      // — `created_at desc`, `limit(1)`, SIN filtro de `status`. Si difirieran, las
+      // dos superficies podrían clasificar distinto el mismo cliente. Es una lectura
+      // ADICIONAL y de SOLO LECTURA: sirve para el estado de procedencia, no para
+      // poblar nada (R-11: su contenido NO se muestra).
+      supabase
+        .from('offers')
+        .select('id, content, status, created_at')
+        .eq('client_id', id)
+        .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle(),
       supabase
@@ -248,13 +300,28 @@ export default function ClientDetailPage() {
         .maybeSingle()
     ]);
 
+    // F-120 (a) — R-03/R-14: la procedencia se resuelve con EL MISMO SEAM que F-119,
+    // no con un criterio propio. `resolveGenerationSource` delega en `pickCanonicalOffer`
+    // (F-109) ⇒ ficha y superficie de onboarding NO pueden clasificar distinto (R-17):
+    // coherencia POR CONSTRUCCIÓN, no por disciplina de quien edite el archivo mañana.
+    const ofvSourceResult = resolveGenerationSource({
+      artifact: 'offer',
+      editable: (ofvEditableRow as { id: string } | null) ?? null,
+      approvedCandidates: (ofvApprovedRows ?? []) as GenerationCandidateRow[]
+    });
+    setOfvSource(ofvSourceResult);
+
     setProgress({
       hasDiagnostic: !!diagnosticData,
       hasCredentials: !!credentialsData,
       hasNap: !!napData,
       briefApproved: !!briefData,
       personaApproved: !!personaData,
-      ofvApproved: !!ofvData,
+      // R-04 — EQUIVALENCIA EXACTA con el `!!ofvData` anterior: `pickCanonicalOffer`
+      // devuelve `null` si y sólo si el conjunto de candidatos `approved` está vacío
+      // ⇒ `state !== 'none-approved'` ≡ "existe alguna fila `approved`". Ni relaja ni
+      // endurece la checklist ni el gate del Brandboard (R-25).
+      ofvApproved: ofvSourceResult.state !== 'none-approved',
       hasGbpDescription: !!gbpData?.description,
       hasApprovedPhotos: !!photosData,
       previewSent: !!previewData
@@ -479,6 +546,16 @@ export default function ClientDetailPage() {
       })
     : null;
 
+  // F-120 (b) — R-24/R-25: EL GATE DEL BRANDBOARD, recomputado en su nuevo hogar.
+  // Se DERIVA de la lectura canónica que esta misma feature trae — **no** de una consulta
+  // propia. `pickCanonicalOffer` devuelve `null` si y sólo si el conjunto de candidatos
+  // `approved` está vacío ⇒ `state !== 'none-approved'` es EXACTAMENTE equivalente al
+  // `!!ofvData` que gobernaba el gate en la pantalla del núcleo: ni relajación ni
+  // endurecimiento. `docs/brandboard-placement.md` avisó por escrito que perder este gate
+  // en silencio es el riesgo concreto del traslado; por eso se deriva en vez de
+  // re-implementarse, y por eso tiene guard dedicado.
+  const ofvApproved = ofvSource !== null && ofvSource.state !== 'none-approved';
+
   return (
     <PageContainer
       pageTitle={client.business_name}
@@ -578,6 +655,12 @@ export default function ClientDetailPage() {
             <TabsTrigger value='brief'>Brief & Persona</TabsTrigger>
             <TabsTrigger value='photos'>Fotos</TabsTrigger>
             <TabsTrigger value='gbp'>GBP</TabsTrigger>
+            {/* F-120 (b) — el Brandboard, inmediatamente DESPUÉS de `gbp` (su consumidor)
+                y sin alterar el orden relativo `gbp` < `deliverable` < `readiness` que
+                fija `f092-visibility` T-24. El gate `!ofvApproved` viaja con él (R-24). */}
+            <TabsTrigger value='brandboard' disabled={!ofvApproved}>
+              {!ofvApproved && '🔒 '}Brandboard
+            </TabsTrigger>
             <TabsTrigger value='deliverable'>Entregable</TabsTrigger>
             <TabsTrigger value='readiness'>Readiness</TabsTrigger>
             <TabsTrigger value='presencia'>Presencia Digital</TabsTrigger>
@@ -802,6 +885,11 @@ export default function ClientDetailPage() {
                     Abrir Brief & Persona
                   </Link>
                 </Button>
+                {/* F-120 (a) — DT-06: la vista de la OFV vive DENTRO del tab
+                    "Brief & Persona" que ya es el lugar del núcleo en la ficha. Las tres
+                    insignias de arriba NO se retiran (R-40): son el resumen de la cadena
+                    de aprobación; esto es su contenido. */}
+                <OfvPanel source={ofvSource} clientId={client.id} />
               </CardContent>
             </Card>
           </TabsContent>
@@ -856,6 +944,29 @@ export default function ClientDetailPage() {
                 </Button>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* F-120 (b) — R-23/R-27/R-28: el Brandboard en su nuevo hogar. El componente se
+              movió BYTE-IDÉNTICO a `src/components/brandboard/brandboard-tab.tsx`; acá sólo
+              cambia quién lo importa y quién le provee las 3 props.
+              R-28: SI `tenantId` o `user` no están disponibles, el editor NO se monta y se
+              declara — montarlo con identidad ausente produciría escrituras rotas o mal
+              atribuidas en `brandboards` (`tenant_id`/`user_id`). */}
+          <TabsContent value='brandboard' className='mt-4'>
+            {tenantId && user?.id ? (
+              <BrandboardTab
+                clientId={client.id}
+                tenantId={tenantId}
+                userId={user.id}
+              />
+            ) : (
+              <Card>
+                <CardContent className='text-muted-foreground py-8 text-center text-sm'>
+                  No se puede abrir el Brandboard: falta la identidad de sesión
+                  (tenant o usuario).
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           <TabsContent value='deliverable' className='mt-4'>

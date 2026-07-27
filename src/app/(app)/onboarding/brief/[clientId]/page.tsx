@@ -42,7 +42,6 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { Icons } from '@/components/icons';
-import { BrandboardTab } from './brandboard-tab';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -1226,9 +1225,6 @@ export default function BriefPage() {
             <TabsTrigger value='ofv' disabled={!personaApproved}>
               {!personaApproved && '🔒 '}OFV
             </TabsTrigger>
-            <TabsTrigger value='brandboard' disabled={!ofvApproved}>
-              {!ofvApproved && '🔒 '}Brandboard
-            </TabsTrigger>
           </TabsList>
 
           {/* ============ TAB 1: BRIEF ============ */}
@@ -1974,6 +1970,24 @@ export default function BriefPage() {
                       />
                     </Field>
                   </div>
+                  {/* F-120 (c) — R-30/R-31: `dream_result` SE PRODUCE, VIAJA Y NO SE VE.
+                      El prompt lo declara bajo `8. MOTIVACIONES`, `method-context.ts` lo
+                      mapea persona→OFV con la etiqueta canónica `Resultado soñado`
+                      (PERSONA_METHOD_LABELS, F-112), y el tipo + el round-trip ya existen
+                      — lo único que faltaba era el render. Va acá, en el bloque que aloja
+                      los bloques 7-8 del método, para que UI, prompt y mapeo nombren lo
+                      mismo con el mismo nombre. NO se toca `PersonaFields` ni
+                      `emptyPersona` ni el write-path (R-32/R-33): el núcleo no gana
+                      campos. */}
+                  <Field label='Resultado soñado' dot='ai'>
+                    <Input
+                      value={personaFields.dream_result}
+                      onChange={(e) =>
+                        updatePersona('dream_result', e.target.value)
+                      }
+                      placeholder='Ej: ser el referente de su zona sin depender del boca a boca'
+                    />
+                  </Field>
                 </BlockCard>
 
                 <BlockCard title='9-10. Frustraciones y nivel de conciencia'>
@@ -2331,14 +2345,6 @@ export default function BriefPage() {
                 </div>
               </>
             )}
-          </TabsContent>
-
-          <TabsContent value='brandboard' className='mt-4'>
-            <BrandboardTab
-              clientId={clientId!}
-              tenantId={tenantId!}
-              userId={user!.id}
-            />
           </TabsContent>
         </Tabs>
       </div>
