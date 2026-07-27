@@ -69,6 +69,12 @@ import {
   formatComplianceWarning,
   type MissingFact
 } from '@/lib/gbp-slice/compliance';
+// F-118 (R-28) — mismo patrón que F-098, para el guard de fabricación content-side: la
+// única superficie de UI que consume un step de contenido es `handleGeneratePost`.
+import {
+  formatContentFabricationWarning,
+  type ContentFabricationSignal
+} from '@/lib/content/non-fabrication';
 // F-099 (R-01) — surface del feedback pendiente del preview GBP más reciente (seam pura).
 import { pickPendingFeedback } from '@/lib/gbp-slice/feedback';
 import {
@@ -588,6 +594,17 @@ export default function GBPPage() {
         toast.success('Post generado. Edítalo si lo deseas.');
       } else {
         toast.error('No se recibió contenido del servidor');
+      }
+      // F-118 (R-28) — ningún pase silencioso: el operador NO puede distinguir leyendo el
+      // post un descuento o un cupo fabricados de unos reales. Patrón literal de F-098
+      // (`compliance_warning` → `toast.warning`) del mismo archivo; el tipo de la frontera
+      // HTTP deja `kind`/`tier` sueltos y el seam puro los estrecha — cast en el borde.
+      if (result.fabrication_warning) {
+        toast.warning(
+          formatContentFabricationWarning(
+            result.fabrication_warning.signals as ContentFabricationSignal[]
+          )
+        );
       }
     } catch (error) {
       console.error('Error generating post:', error);

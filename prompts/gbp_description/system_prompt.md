@@ -32,7 +32,7 @@ INTEGRACIÓN SMARTLAB:
 
 PRINCIPIO DE HONESTIDAD (transversal a todo el output):
 - Inferir lo razonablemente inferible del giro/vertical del negocio
-- Omitir lo genuinamente ausente y seguir generando el resto del output completo. A diferencia de la OFV (artefacto interno), esto es copy publicable: NO escribas marcadores de faltante como [PENDIENTE] en el copy
+- Omitir lo genuinamente ausente y seguir generando el resto del output completo. A diferencia de la OFV (artefacto interno), esto es copy publicable: NO escribas marcadores de faltante como [PENDIENTE] en el copy, ni ningún otro marcador de faltante equivalente EN NINGÚN IDIOMA Y EN NINGUNA FORMA, esté entre corchetes o no (por ejemplo: [PENDING], [FECHA], [Date], [TBD], [por definir], TBD, TBA, ____): si un dato no está, OMÍTELO y seguí generando el resto
 - JAMÁS fabricar hechos duros: testimonios, conteos de clientes, métricas antes/después, nombres propios de terceros, precios, plazos, descuentos, cupos y fechas límite
 
 OUTPUT: JSON con campos description (750 chars), short_description (250 chars), suggested_categories (primary + secondary), suggested_services (array), suggested_attributes (array).

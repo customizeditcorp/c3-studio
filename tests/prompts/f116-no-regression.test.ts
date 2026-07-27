@@ -260,67 +260,89 @@ test('T-11(c) ⭐ R-29/DT-9 los 11 meta.json son IDÉNTICOS a HEAD (F-116 no bum
 });
 
 /**
- * **F-117 (R-06/R-07) — GUARD PREEXISTENTE CRUZADO POR DISEÑO. Reescrito preservando la
- * intención, NO borrado ni vaciado.** *(Tercer cruce del arco; mismo patrón que los dos
- * que F-117 R-24 autoriza en `f112-no-regression` y `f113-source-guards`, y que a su vez
- * copia el precedente literal de F-113 R-21.)*
+ * **F-117 (R-06/R-07) y F-118 (R-19/R-29/R-31) — GUARD PREEXISTENTE CRUZADO POR DISEÑO.
+ * Reescrito preservando la intención, NO borrado ni vaciado.** *(Cuarto cruce del arco;
+ * mismo patrón que los tres que F-117 R-24 autoriza en `f112-no-regression`,
+ * `f113-source-guards` y este archivo, y que a su vez copian el precedente de F-113 R-21.)*
  *
- * **La intención de este guard se cumple, y sigue cumpliéndose.** F-116 declaró *"soy
- * núcleo; los prompts de contenido son downstream y van en la **Fase C**"*. F-117 **es**
- * la Fase C: es la feature que este guard estaba esperando, no una violación de él.
+ * **La intención de este guard es "ningún prompt de contenido se modifica fuera de lo
+ * AUTORIZADO"**, y eso sigue cumpliéndose. Lo que cambia es el conjunto autorizado.
  *
- * **Lo que F-117 cambia es UNA LÍNEA de UN prompt.** `prompts/gbp_description/
- * system_prompt.md:5` declaraba `INPUTS: brief_negocio + buyer_persona + ofv`. F-117
- * R-01 saca `gbp_description` de `needsPersona` por **CL-092** (el GBP se queda con
- * brief + OFV), así que dejar esa línea intacta recrearía **exactamente** el defecto que
- * F-114 eliminó (R-08/R-11): un `INPUTS:` que promete una fuente que el route NO
- * inyecta.
+ * **⤫ F-118 — DOS correcciones, y la segunda importa más que la primera:**
  *
- * **El guard queda MÁS fuerte, no más débil:** los otros 7 prompts de contenido siguen
- * exigidos byte-idénticos a `HEAD`, y para `gbp_description` se exige que el diff sea
- * **exactamente** la línea `INPUTS:` — todo el resto del archivo byte-idéntico. Vaciarlo
- * habría dejado los 8 sin protección; esto no deja pasar ni un carácter de más.
+ * 1. *El alcance autorizado crece.* F-118 (Fase D, CL-101) edita **una línea del PRINCIPIO
+ *    DE HONESTIDAD en los 8** —generalizar la prohibición del marcador de faltante a
+ *    cualquier idioma, porque el modelo emitió `[PENDING]` en copy publicable— y, sólo en
+ *    `gbp_posts`, **añade** la condición de `EVENT` y **subordina** la línea de variedad.
+ *
+ * 2. *El ancla deja de ser `HEAD`.* Este guard comparaba contra `git show HEAD:`, así que
+ *    en el árbol de trabajo del implementer daba rojo **por estar sin commitear**, y
+ *    volvía a verde con el commit **diciendo algo que ya era falso** (*"siguen
+ *    byte-idénticos"*, cuando F-118 tocó los 8). Un assert que sobrevive **vaciándose de
+ *    contenido** no es un guard: es la misma familia que un alias que engaña a un grep.
+ *    ⇒ el ancla pasa a ser el **commit fijo `4ca1b96`** (`main` antes de F-118). Ahora el
+ *    guard mide **alcance autorizado**, no *ausencia de cambios*: es verde sin commit y
+ *    rojo ante cualquier edición no declarada.
+ *
+ * **El guard queda MÁS fuerte, no más débil:** todo lo que NO sea una de las líneas
+ * autorizadas debe ser byte-idéntico a `4ca1b96` en los 8 prompts — ni un carácter de más.
+ * Y el CONTENIDO de las líneas autorizadas no queda sin cubrir: lo fijan
+ * `f114-content-honesty` T-11(f) (la sub-frase preservada verbatim + la negación cercana),
+ * `f118-gbp-posts-event` T-12 (la generalización, la condición de `EVENT`, la variedad
+ * subordinada) y este mismo archivo para `INPUTS:`.
  */
-test('T-11(c) R-28 (⤫ F-117 R-06/R-07) los prompts de contenido siguen BYTE-IDÉNTICOS a HEAD, salvo la línea `INPUTS:` de `gbp_description`', () => {
-  const esInputs = (l: string): boolean => /^\s*INPUTS\s*:/.test(l);
+test('T-11(c) R-28 (⤫ F-117 R-06/R-07, ⤫ F-118 R-19/R-29/R-31) los prompts de contenido no cambian fuera del alcance AUTORIZADO (ancla: `4ca1b96`)', () => {
+  /** `main` antes de F-118 — ancla FIJA: el guard no depende de si ya se commiteó. */
+  const BASE = '4ca1b96';
+  /** Líneas cuyo cambio está autorizado, con la feature que lo autoriza. */
+  const esInputs = (l: string): boolean => /^\s*INPUTS\s*:/.test(l); // F-117 (CL-092)
+  const esMarcador = (l: string): boolean =>
+    /NO\s+escribas\s+marcadores\s+de\s+faltante/.test(l); // F-118 R-19 (los 8)
+  const esCondEvent = (l: string): boolean => /Condición\s+de\s+EVENT/.test(l); // F-118 R-29 (sólo gbp_posts, línea NUEVA)
+  const esVariedad = (l: string): boolean =>
+    /^- Variedad de tipos de posts/.test(l); // F-118 R-31 (sólo gbp_posts)
+
   for (const step of CONTENT_STEPS) {
     const working = read(`prompts/${step}/system_prompt.md`);
-    const head = execFileSync(
+    const base = execFileSync(
       'git',
-      ['show', `HEAD:prompts/${step}/system_prompt.md`],
+      ['show', `${BASE}:prompts/${step}/system_prompt.md`],
       { cwd: ROOT, encoding: 'utf8' }
     );
-    if (step === 'gbp_description') {
-      // Único cambio autorizado del arco: la línea `INPUTS:` (F-117 R-06/R-07, CL-092).
-      const strip = (t: string): string =>
-        t
-          .split('\n')
-          .filter((l) => !esInputs(l))
-          .join('\n');
-      assert.equal(
-        strip(working),
-        strip(head),
-        'gbp_description: F-117 sólo puede tocar la línea `INPUTS:` de este prompt (R-07)'
-      );
-      assert.equal(
-        working.split('\n').length,
-        head.split('\n').length,
-        'gbp_description: F-117 no agrega ni borra líneas'
-      );
-      assert.doesNotMatch(
-        working.split('\n').find(esInputs) ?? '',
-        /buyer[_\s]?persona/i,
-        'CL-092: el `INPUTS:` de `gbp_description` ya no puede prometer la persona'
-      );
-      continue;
-    }
+    const autorizada = (l: string): boolean =>
+      esMarcador(l) ||
+      (step === 'gbp_description' && esInputs(l)) ||
+      (step === 'gbp_posts' && (esCondEvent(l) || esVariedad(l)));
+    const strip = (t: string): string =>
+      t
+        .split('\n')
+        .filter((l) => !autorizada(l))
+        .join('\n');
     assert.equal(
-      working,
-      head,
-      `${step}: prompt de CONTENIDO modificado fuera de lo autorizado (R-28 / CL-102). ` +
-        'F-117 sólo toca `gbp_description`, y sólo su línea `INPUTS:`.'
+      strip(working),
+      strip(base),
+      `${step}: prompt de CONTENIDO modificado FUERA del alcance autorizado (R-28 / CL-102). ` +
+        'Autorizado: la línea del marcador de faltante (F-118 R-19) en los 8; ' +
+        'la línea `INPUTS:` de `gbp_description` (F-117 R-06/R-07); ' +
+        'la condición de `EVENT` y la línea de variedad de `gbp_posts` (F-118 R-29/R-31).'
+    );
+    // El conteo de líneas sólo puede crecer donde F-118 AÑADE una línea (la condición
+    // aditiva de `EVENT`, que H-2 obliga a que sea una línea nueva y no una reescritura).
+    const delta = working.split('\n').length - base.split('\n').length;
+    assert.equal(
+      delta,
+      step === 'gbp_posts' ? 1 : 0,
+      `${step}: se agregaron o borraron líneas fuera de lo autorizado (delta=${delta})`
     );
   }
+  // CL-092 sigue vigente: el `INPUTS:` de `gbp_description` no vuelve a prometer la persona.
+  assert.doesNotMatch(
+    read('prompts/gbp_description/system_prompt.md')
+      .split('\n')
+      .find(esInputs) ?? '',
+    /buyer[_\s]?persona/i,
+    'CL-092: el `INPUTS:` de `gbp_description` ya no puede prometer la persona'
+  );
 });
 
 /* ================================================================== */

@@ -36,17 +36,27 @@ test('R-05 el user message conserva el keyword JSON', () => {
   assert.match(ROUTE, /Responde SOLO con JSON valido/);
 });
 
-/* ---- R-07: retry-once — a lo sumo 2 create() en el flujo, sin loop/backoff --------- */
+/* ---- R-07: retry-once por motivo — cota EXACTA de create(), sin loop/backoff ------- */
 
 test('R-07 create() acotado (retry-once por motivo, no loop)', () => {
   const matches = ROUTE.match(/openai\.chat\.completions\.create\(/g) ?? [];
   // F-102 aporta 2 (call inicial + retry estructural); F-105 (R-05) añade UN tercer
   // call-site: el retry-once dirigido de no-fabricación de prueba social en el branch `ofv`.
-  // Ambos retries son single-shot y ortogonales (motivos distintos), nunca un loop.
+  // ⤫ F-118 (R-22/R-26, CL-101) — la cota SUBE de 3 a 4: el guard determinista de
+  // fabricación en copy publicable añade su propio retry-once dirigido, acotado a los 8
+  // steps de contenido. Es el MISMO movimiento con que F-105 subió esta cota de 2 a 3, y
+  // se hace por la misma razón: la cota está para subirse conscientemente cuando aparece
+  // un motivo de retry nuevo y legítimo, NO para sortearse con un alias que engañe al
+  // grep. La INTENCIÓN del assert queda intacta — sigue siendo una cota EXACTA (no un
+  // `>=`), de modo que un call-site no declarado la pone roja igual que antes.
+  // Nota: la cota por REQUEST sigue siendo 3 (1 base + 1 F-102 + 1 de no-fabricación);
+  // los branches `ofv` (F-105) y de contenido (F-118) son mutuamente excluyentes por
+  // `step` y nunca se suman.
+  // Los tres retries son single-shot y ortogonales (motivos distintos), nunca un loop.
   assert.equal(
     matches.length,
-    3,
-    'esperaba 3 create() (call + retry estructural F-102 + retry no-fabricación F-105)'
+    4,
+    'esperaba 4 create() (call + retry estructural F-102 + retry no-fabricación F-105 + retry fabricación F-118)'
   );
   // No hay bucle/backoff en torno a ningún retry.
   assert.doesNotMatch(ROUTE, /for\s*\([^)]*retr/i);

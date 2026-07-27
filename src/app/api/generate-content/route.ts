@@ -83,6 +83,19 @@ import {
   buildNonFabricationRetryDirective,
   type FabricationSignal
 } from '@/lib/ofv/non-fabrication';
+// F-118 — core PURO de no-fabricación en COPY PUBLICABLE (backstop content-side). Espejo
+// ESTRUCTURAL de F-105 con la CALIBRACIÓN INVERTIDA: empate→flag, grounding ESTRECHO (sólo
+// la rebanada promocional que F-111 inyecta) y el marcador de faltante como defecto que
+// nunca pasa. La postura se explica entera en el módulo; acá vive sólo la orquestación.
+import {
+  resolveContentGrounding,
+  checkContentNonFabrication,
+  improvesStrictly,
+  buildContentFabricationRetryDirective,
+  type ContentFabricationSignal,
+  type ContentNonFabricationResult,
+  type FabricationTier
+} from '@/lib/content/non-fabrication';
 const AI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o';
 export async function POST(request: NextRequest) {
   try {
@@ -564,6 +577,85 @@ export async function POST(request: NextRequest) {
       'nurturing',
       'social_content'
     ];
+    // --- F-118: guard determinista de fabricación en COPY PUBLICABLE (backstop) ---
+    // UBICACIÓN OBLIGADA (R-27/H-3): DESPUÉS de `outputSteps` y ANTES de `if (save)`.
+    // Dentro del tramo de F-105 (entre `// --- F-105: guard` y `let savedRecord`) pondría
+    // rojo su source-guard, que asserta EXACTAMENTE 1 re-call en ese tramo.
+    //
+    // Postura INVERTIDA respecto de F-105 (el detalle y su porqué, en el módulo):
+    // empate→flag, grounding ESTRECHO (sólo las líneas `Urgencia:`/`Decision Frame:` que
+    // F-111 inyecta — un digit-set global dejaría que un `15` de un teléfono groundee un
+    // `15% discount`) y marcador de faltante = defecto que nunca pasa.
+    //
+    // Acotado a los 8 steps de contenido (R-21) y corre con save:true Y save:false.
+    // check → retry-once dirigido (directiva ANTES del cierre de idioma F-081, MISMOS
+    // params) → adopción SÓLO SI MEJORA ESTRICTAMENTE (R-23) → warning (R-25) + constancia
+    // persistida sólo para residuo `commitment` (R-24). NUNCA bloquea: `success` sigue
+    // siendo `true` y el contenido siempre se devuelve (R-03). Un solo re-call, sin loop
+    // (R-26). No toca el validador anti-AI, el method-grounding ni el retry F-102.
+    let fabricationResidue: ContentNonFabricationResult | null = null;
+    let fabricationWarning:
+      | {
+          signals: ContentFabricationSignal[];
+          tier: FabricationTier;
+          retried: boolean;
+        }
+      | undefined;
+    if (outputSteps.includes(step)) {
+      const contentGrounding = resolveContentGrounding(contextChain);
+      let cf = checkContentNonFabrication(
+        parsedContent,
+        contentGrounding,
+        step
+      );
+      let cfRetried = false;
+      if (!cf.ok) {
+        // R-22: regenerar UNA sola vez con una directiva que enumera los tokens literales.
+        cfRetried = true;
+        const directive = buildContentFabricationRetryDirective(cf.signals);
+        // H-4 — este es el CUARTO call-site del modelo en la ruta. La cota exacta que
+        // `f102-constraints.test.ts` R-07 fija se SUBE conscientemente de 3 a 4 (mismo
+        // movimiento que hizo F-105 al añadir el tercero): la cota existe para subirse con
+        // justificación, no para sortearse. La cota POR REQUEST sigue siendo 3 (R-26): los
+        // branches `ofv` (F-105) y de contenido (F-118) son mutuamente excluyentes por
+        // `step`, así que nunca se suman.
+        const retryCompletion = await openai.chat.completions.create({
+          ...callParams,
+          messages: [
+            { role: 'system', content: systemContent },
+            {
+              role: 'user',
+              content: userMessageBase + '\n\n' + directive + languageDirective
+            }
+          ]
+        });
+        const retryText = retryCompletion.choices[0]?.message?.content || '';
+        const retryResult = parseGeneratedContent(retryText);
+        if (retryResult.ok) {
+          const retryCf = checkContentNonFabrication(
+            retryResult.content,
+            contentGrounding,
+            step
+          );
+          if (improvesStrictly(cf, retryCf)) {
+            // R-23: adoptar SÓLO si el retry queda limpio o baja de tier. Igual o peor,
+            // se conserva la primera generación (no-regresión).
+            parsedContent = retryResult.content;
+            rawText = retryResult.rawText;
+            cf = retryCf;
+          }
+        }
+        // else: retry inválido/no-parseable → conservar el original (R-23).
+      }
+      if (!cf.ok && cf.tier !== null) {
+        fabricationResidue = cf;
+        fabricationWarning = {
+          signals: cf.signals,
+          tier: cf.tier,
+          retried: cfRetried
+        };
+      }
+    }
     if (save) {
       if (tableMap[step]) {
         const table = tableMap[step];
@@ -757,6 +849,34 @@ export async function POST(request: NextRequest) {
           validatedContent,
           methodGrounding
         );
+        // F-118 R-24 — CONSTANCIA de auditoría, NO un gate. Clave ADITIVA en el `jsonb`
+        // existente (mismo mecanismo que `_validation` de F-064 y `_method_grounding` de
+        // F-065): SIN DDL, sin tocar `status` y sin alterar ninguna clave preexistente.
+        // Sólo se adjunta cuando queda residuo de tier `commitment` — un descuento, cupo o
+        // plazo sin respaldo COMPROMETE al negocio y el artefacto cuya publicación está en
+        // juego sobrevive a la request, mientras que un warning transitorio no. El residuo
+        // `publication_defect` NO se persiste (R-25): muere con la request, como en F-105.
+        //
+        // Divergencia DELIBERADA frente a F-105 R-08 (warning estrictamente transitorio),
+        // justificada por F-117 R-30: `generated_outputs` está declarado como registro de
+        // auditoría de generación, y un registro de auditoría que omite el flag miente por
+        // omisión. NO tiene lector y NO debe construirse uno (F-117 R-32): es constancia,
+        // no control.
+        const guardedContent =
+          fabricationResidue && fabricationResidue.tier === 'commitment'
+            ? {
+                ...groundedContent,
+                _fabrication_guard: {
+                  tier: fabricationResidue.tier,
+                  signals: fabricationResidue.signals.map((s) => ({
+                    kind: s.kind,
+                    tier: s.tier,
+                    value: s.value
+                  })),
+                  checked_at: new Date().toISOString()
+                }
+              }
+            : groundedContent;
         // F-117 R-30 — QUÉ ES `generated_outputs` (declaración; ver
         // `docs/generated-outputs.md`, que dice lo mismo y un test ata a este
         // comentario):
@@ -779,7 +899,7 @@ export async function POST(request: NextRequest) {
             offer_id: offerId, // F-109 DT-06 — OFV approved canónica (fallback prev.)
             prompt_version_id: prompt.id,
             output_type: step,
-            content: groundedContent,
+            content: guardedContent,
             // F-081 (R-07): el tag refleja el idioma del CLIENTE (fuente de verdad),
             // no el parsedContent.language cosmético que emite el modelo. Fallback 'es'.
             language: normalizeContentLanguage(
@@ -832,7 +952,12 @@ export async function POST(request: NextRequest) {
       ...(generationWarning ? { generation_warning: generationWarning } : {}),
       // F-105 R-08 — warning TRANSITORIO de no-fabricación (junto a generation_warning);
       // omitido en camino feliz, NUNCA persistido (no entra en insertData/content._*).
-      ...(nonFabWarning ? { social_proof_warning: nonFabWarning } : {})
+      ...(nonFabWarning ? { social_proof_warning: nonFabWarning } : {}),
+      // F-118 R-25 — warning de fabricación content-side para CUALQUIER residuo (ambos
+      // tiers), spread-guarded: omitido en el camino feliz, no rompe consumidores y NO
+      // bloquea `success: true`. La constancia persistida (R-24) es otra cosa y sólo
+      // aplica al tier `commitment`.
+      ...(fabricationWarning ? { fabrication_warning: fabricationWarning } : {})
     });
   } catch (error) {
     console.error('generate-content error:', error);
