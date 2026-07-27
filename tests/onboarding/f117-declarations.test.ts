@@ -36,7 +36,12 @@ const DOC_OUTPUTS_REL = 'docs/generated-outputs.md';
 const DOC_BRANDBOARD_REL = 'docs/brandboard-placement.md';
 const ROUTE_REL = 'src/app/api/generate-content/route.ts';
 const PAGE_REL = 'src/app/(app)/onboarding/brief/[clientId]/page.tsx';
-const TAB_REL = 'src/app/(app)/onboarding/brief/[clientId]/brandboard-tab.tsx';
+/** ⤫ F-120 — el componente se MOVIÓ acá (byte-idéntico). Ruta vieja, sólo como ancla git. */
+const TAB_REL = 'src/components/brandboard/brandboard-tab.tsx';
+const TAB_REL_ORIGEN =
+  'src/app/(app)/onboarding/brief/[clientId]/brandboard-tab.tsx';
+/** ⤫ F-120 — el destino del tab Brandboard: la ficha del cliente. */
+const FICHA_REL = 'src/app/(app)/clients/[id]/page.tsx';
 
 const DOC_OUTPUTS = read(DOC_OUTPUTS_REL);
 const DOC_BRANDBOARD = read(DOC_BRANDBOARD_REL);
@@ -238,77 +243,95 @@ test('T-12 ⭐ R-28 la declaración del Brandboard existe, nombra el GATE y difi
 });
 
 /**
- * **⤫ F-119 — GUARD PREEXISTENTE RE-ANCLADO (no debilitado).** *(Mismo patrón e idéntica
- * autorización que los re-anclajes ⤫ F-118 de `f116`/`f117` — lección CL-107 / F-118 H-5.)*
+ * **⤫ F-120 — GUARD PREEXISTENTE RE-ANCLADO (no debilitado; ENDURECIDO).**
+ * *(Mismo patrón e idéntica doctrina que el re-anclaje ⤫ F-119 que este mismo test llevaba,
+ * y que los ⤫ F-118 de `f116`/`f117` — lección CL-107 / F-118 H-5 / F-119 R-37. Autorización:
+ * `CL-103`, spec `specs/F-120/` R-45, previsto por escrito en `design.md` §10.3 fila 1.)*
  *
- * La intención de R-29 es **que el Brandboard no se mueva**: F-117 lo *declara* alojado por
- * conveniencia de gating, y el traslado es de la Fase F. Esa intención **sigue viva y se
- * preserva entera**. Lo que dejó de ser cierto es el vehículo: *"`page.tsx` byte-idéntico a
- * `HEAD`"* — F-119 (Fase E) edita ese archivo por diseño, en partes que **nada tienen que ver
- * con el Brandboard** (derivación de `version` + señal de procedencia). Y contra `HEAD` el
- * guard volvería a verde **por movimiento del ancla** al commitear, afirmando algo ya falso.
+ * **Qué dejó de ser cierto y por qué.** El enunciado anterior era *"el Brandboard NO se movió"*,
+ * y su razón literal era *"el traslado es de la **Fase F**"*. **F-120 ES la Fase F.** El guard
+ * afirmaba exactamente lo que esta feature vino a ejecutar (R-23), con la bendición escrita de
+ * `docs/brandboard-placement.md`. Mantenerlo tal cual obligaría a F-120 a evadirlo; borrarlo
+ * perdería la única red que protege el gate.
  *
- * Re-anclaje: `brandboard-tab.tsx` sigue exigido **byte-idéntico** (es LA UI del Brandboard),
- * contra el **commit FIJO `2c072b6`** en vez de `HEAD`; y de `page.tsx` se exige que **el
- * Brandboard no se haya movido**: mismo `TabsTrigger` gateado, mismo `TabsContent`, mismo
- * import del tab, y **cero** líneas del bloque Brandboard tocadas por el diff de F-119.
+ * **Qué se preserva — la intención real, entera.** La intención de R-29 nunca fue "que nada se
+ * mueva": era **que el componente no se altere y que el gate no se pierda en silencio** — el
+ * riesgo que `docs/brandboard-placement.md` nombra por escrito (*"hacerlo al final de una
+ * feature de cableado es exactamente cómo se pierde un gate en silencio"*). Ambas cosas siguen
+ * exigidas, ahora en el destino:
+ *
+ *   1. `brandboard-tab.tsx` sigue exigido **BYTE-IDÉNTICO**, contra el **commit FIJO `76e7637`**
+ *      (la ruta vieja en git ↔ la ruta nueva en disco). El movimiento no autoriza ni una línea.
+ *   2. El `TabsTrigger value='brandboard' disabled={!ofvApproved}` sigue exigido — **en la
+ *      ficha**, su nuevo hogar — junto con su `TabsContent`.
+ *
+ * **Lo que se AÑADE (el guard viejo no podía pedirlo):** la pantalla del núcleo tiene **CERO**
+ * referencias al Brandboard. El guard viejo sólo podía comprobar que el bloque siguiera ahí;
+ * éste comprueba además que **no quedó nada atrás**, que es lo que hace del traslado un
+ * traslado y no una duplicación.
+ *
+ * **Ancla FIJA, nunca `HEAD`.** Contra `HEAD` este guard volvería a verde **por movimiento del
+ * ancla** en cuanto se commitee, afirmando algo ya falso; un guard que sólo puede estar verde
+ * DESPUÉS del commit está mal anclado (CL-107). Verde en el working tree **sin commit**.
  */
-test('T-12 ⭐ R-29 (⤫ F-119) el Brandboard NO se movió: `brandboard-tab.tsx` byte-idéntico a `2c072b6` y su bloque en `page.tsx` intacto', () => {
-  const BASE = '2c072b6';
+const BASE_F120 = '76e7637';
+
+test('T-12 ⭐ R-29 (⤫ F-120) el Brandboard SE MOVIÓ sin perder el gate: componente byte-idéntico a `76e7637`, gate en el DESTINO, cero rastros en el ORIGEN', () => {
   const desde = (rel: string): string =>
-    execFileSync('git', ['show', `${BASE}:${rel}`], {
+    execFileSync('git', ['show', `${BASE_F120}:${rel}`], {
       cwd: REPO,
       encoding: 'utf8',
       maxBuffer: 16 * 1024 * 1024
     });
-  // La UI del Brandboard propiamente dicha: byte-identidad plena, ancla FIJA.
+
+  // (1) La UI del Brandboard: byte-identidad plena a través del movimiento. Ancla FIJA.
   assert.equal(
     read(TAB_REL),
-    desde(TAB_REL),
-    `${TAB_REL}: el traslado del Brandboard es de la Fase F (R-29) — F-119 no lo toca`
+    desde(TAB_REL_ORIGEN),
+    `${TAB_REL}: el traslado es de UBICACIÓN, no de comportamiento (R-26) — ni una línea ` +
+      'del editor puede cambiar al mudarse'
   );
-  // Y en `page.tsx`, el bloque del Brandboard sigue exactamente donde y como estaba.
+
+  // (2) El gate, en el DESTINO. Whitespace-tolerante (el hook husky/prettier reformatea).
+  const FICHA = read(FICHA_REL);
+  assert.match(
+    FICHA,
+    /<TabsTrigger\s+value='brandboard'\s+disabled=\{\s*!ofvApproved\s*\}/,
+    'el gate del Brandboard NO puede perderse en el traslado — es el riesgo concreto que ' +
+      '`docs/brandboard-placement.md` nombró por escrito'
+  );
+  assert.match(FICHA, /<TabsContent\s+value='brandboard'/);
+  assert.match(FICHA, /BrandboardTab/);
+
+  // (3) Lo que el guard viejo no podía pedir: CERO rastros en el ORIGEN (R-23).
   const PAGE = read(PAGE_REL);
-  const BASE_PAGE = desde(PAGE_REL);
-  const bloqueBrandboard = (src: string): string => {
-    const i = src.indexOf("<TabsContent value='brandboard'");
-    assert.ok(i > 0, 'no se encontró el `TabsContent` del Brandboard');
-    return src.slice(i, src.indexOf('</TabsContent>', i));
-  };
-  assert.equal(bloqueBrandboard(PAGE), bloqueBrandboard(BASE_PAGE));
-  for (const src of [PAGE, BASE_PAGE]) {
-    assert.match(
-      src,
-      /<TabsTrigger\s+value='brandboard'\s+disabled=\{\s*!ofvApproved\s*\}/
-    );
-    assert.match(src, /BrandboardTab/);
-  }
-  // El diff de F-119 sobre `page.tsx` no menciona el Brandboard en ninguna línea.
-  const diff = execFileSync('git', ['diff', BASE, '--', PAGE_REL], {
-    cwd: REPO,
-    encoding: 'utf8',
-    maxBuffer: 16 * 1024 * 1024
-  })
-    .split('\n')
-    .filter(
-      (l) =>
-        (l.startsWith('+') || l.startsWith('-')) &&
-        !l.startsWith('+++') &&
-        !l.startsWith('---')
-    );
-  assert.deepEqual(
-    diff.filter((l) => /brandboard/i.test(l)),
-    [],
-    'F-119 no puede tocar ninguna línea del Brandboard (R-29: el traslado es Fase F)'
+  assert.equal(
+    (PAGE.match(/brandboard/gi) ?? []).length,
+    0,
+    'la pantalla del núcleo contiene el núcleo y nada adicional (CL-102, mandato 1): ' +
+      'tras el traslado no puede quedar ni una referencia al Brandboard'
+  );
+  // Y el archivo ya no existe en la ruta vieja: es un MOVIMIENTO, no una copia.
+  assert.throws(
+    () => read(TAB_REL_ORIGEN),
+    'el componente no puede quedar duplicado en la carpeta de ruta del núcleo'
   );
 });
 
-test('T-12 R-29 el gate `disabled={!ofvApproved}` sigue vivo en el `TabsTrigger`', () => {
-  const PAGE = read(PAGE_REL);
+test('T-12 R-29 (⤫ F-120) el gate `disabled={!ofvApproved}` se DERIVA de la lectura canónica, no de una consulta propia', () => {
+  const FICHA = read(FICHA_REL);
   assert.match(
-    PAGE,
+    FICHA,
     /<TabsTrigger\s+value='brandboard'\s+disabled=\{\s*!ofvApproved\s*\}/,
     'el gate del Brandboard no puede perderse'
   );
-  assert.match(PAGE, /<TabsContent\s+value='brandboard'/);
+  assert.match(FICHA, /<TabsContent\s+value='brandboard'/);
+  // R-25: `ofvApproved` sale del seam de procedencia, no de un `.eq('status','approved')`
+  // propio del gate. `pickCanonicalOffer` devuelve `null` sii no hay candidatos ⇒ la
+  // condición es EXACTAMENTE equivalente a la existencia que el gate usaba en el origen.
+  assert.match(
+    FICHA,
+    /const\s+ofvApproved\s*=[\s\S]{0,160}?ofvSource[\s\S]{0,120}?'none-approved'/,
+    'R-25: el gate se recomputa DERIVÁNDOLO de la lectura canónica que la feature ya trae'
+  );
 });

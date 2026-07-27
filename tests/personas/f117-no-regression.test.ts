@@ -307,27 +307,38 @@ test('T-09 ⭐ R-20 el prompt `buyer_persona` es BYTE-IDÉNTICO a `HEAD` (F-117 
 });
 
 /**
- * **⤫ F-119 — GUARD PREEXISTENTE RE-ANCLADO (no debilitado).** *(Mismo patrón e idéntica
- * autorización que el cruce ⤫ F-117 R-24 sobre los guards de F-113, y que los re-anclajes
- * ⤫ F-118 de `f116`/`f117` — lección CL-107 / F-118 H-5.)*
+ * **⤫ F-120 — GUARD PREEXISTENTE RE-ANCLADO (no debilitado).** *(Mismo patrón e idéntica
+ * doctrina que el ⤫ F-119 que este test llevaba, que el ⤫ F-117 R-24 sobre los guards de
+ * F-113 y que los ⤫ F-118 de `f116`/`f117` — lección CL-107 / F-118 H-5 / F-119 R-37.
+ * Autorización: `CL-103`, spec `specs/F-120/` R-45, previsto por escrito en `design.md`
+ * §10.3 fila 2.)*
  *
- * El enunciado original —*"la UI del núcleo es BYTE-IDÉNTICA a `HEAD`"*— **dejó de describir
- * el mundo**: F-119 (Fase E) edita `page.tsx` por diseño. Y comparar contra `HEAD` lo volvería
- * verde **por movimiento del ancla** en cuanto F-119 commitee, afirmando algo ya falso. Se
+ * **La primera mitad NO se toca y queda verde POR MÉRITO, no por evasión.** La intención de
+ * R-20/R-23 (CL-105) es que **el NÚCLEO no gane campos**: `PersonaFields` y `emptyPersona`
+ * byte-idénticos. F-120 añade la UI de `dream_result`, y `dream_result` **ya estaba** en el
+ * tipo y en el estado inicial desde antes (§G-5) ⇒ el núcleo **no gana ni un campo** (R-32).
+ * Ésa es exactamente la razón por la que este assert sobrevive intacto: (c) es **puro render**.
+ *
+ * **La segunda mitad se rompía MECÁNICAMENTE** al sacar el Brandboard de `page.tsx` (R-23):
+ * el `assert.deepEqual` enumeraba las líneas eliminadas por F-119, y F-120 elimina otras. Se
  * re-ancla en dos sentidos:
  *
- *   1. el ancla deja de ser `HEAD` y pasa a ser el **commit FIJO `2c072b6`** (`main` antes de
- *      F-119) ⇒ verde en el working tree SIN commit y sensible a cualquier edición posterior;
- *   2. el guard deja de medir *ausencia de cambios* y pasa a medir **alcance autorizado**: la
- *      intención real (R-20/R-23, CL-105) es que **el NÚCLEO no gane campos** — que
- *      `PersonaFields` y su `emptyPersona` no crezcan. F-119 no toca ni uno: sólo añade la
- *      derivación de `version` (a) y la señal de procedencia (b).
+ *   1. el ancla deja de ser `2c072b6` y pasa a ser el **commit FIJO `76e7637`** (`main` antes
+ *      de F-120) ⇒ verde en el working tree **SIN commit** y sensible a cualquier edición
+ *      posterior. **Nunca `HEAD`**: contra `HEAD` volvería a verde por movimiento del ancla al
+ *      commitear, afirmando algo ya falso (CL-107).
+ *   2. el conjunto autorizado de eliminaciones pasa a ser **exactamente el bloque Brandboard**
+ *      — import, `TabsTrigger` con su gate, `TabsContent`, `BrandboardTab` con sus 3 props —
+ *      y nada más. El binding `ofvApproved` **NO** se elimina: sigue en uso en el tab de OFV
+ *      (F-108 R-07), así que sale de la lista por mérito.
  *
- * Muerde: si alguien añadiera un campo a `PersonaFields`, o **borrara** cualquier línea de la
- * UI fuera de las 6 autorizadas, esto queda rojo.
+ * **La intención se preserva íntegra (CL-105): el núcleo no gana campos, y sólo se elimina lo
+ * autorizado.** Muerde: cualquier otra línea eliminada de la UI del núcleo deja esto rojo —
+ * incluida cualquier consulta, cualquier `INSERT`, el aviso `GenerationSourceNotice` o un
+ * eslabón de la cadena `briefApproved → personaApproved` (R-41).
  */
-test('T-09 ⭐ R-20 (⤫ F-119) el NÚCLEO no gana campos: `PersonaFields`/`emptyPersona` BYTE-IDÉNTICOS a `2c072b6`, y el delta de la UI es SÓLO el autorizado', () => {
-  const BASE = '2c072b6';
+test('T-09 ⭐ R-20 (⤫ F-120) el NÚCLEO no gana campos: `PersonaFields`/`emptyPersona` BYTE-IDÉNTICOS a `76e7637`, y lo ÚNICO eliminado es el bloque Brandboard', () => {
+  const BASE = '76e7637';
   const base = execFileSync('git', ['show', `${BASE}:${CORE_PAGE_REL}`], {
     cwd: REPO,
     encoding: 'utf8',
@@ -359,8 +370,8 @@ test('T-09 ⭐ R-20 (⤫ F-119) el NÚCLEO no gana campos: `PersonaFields`/`empt
     bloque(actual, 'const emptyPersona'),
     bloque(base, 'const emptyPersona')
   );
-  // (2) Alcance autorizado: el delta de F-119 no ELIMINA nada fuera de las 6 líneas de
-  // `version` que la feature reemplaza por el seam (R-10/R-12). Todo lo demás es adición.
+  // (2) Alcance autorizado: el delta de F-120 no ELIMINA nada fuera del bloque Brandboard
+  // (R-23). Todo lo demás de la feature es adición (la `<Field>` de `dream_result`).
   const diff = execFileSync('git', ['diff', BASE, '--', CORE_PAGE_REL], {
     cwd: REPO,
     encoding: 'utf8',
@@ -373,15 +384,32 @@ test('T-09 ⭐ R-20 (⤫ F-119) el NÚCLEO no gana campos: `PersonaFields`/`empt
   assert.deepEqual(
     eliminadas.sort(),
     [
-      "status: 'approved'",
-      "status: 'approved'",
-      "status: 'draft'",
-      'version: 1',
-      'version: 1,',
-      "{ status: 'draft' }"
+      '', // la línea en blanco que separaba el `TabsContent` del anterior
+      '/>',
+      '</TabsContent>',
+      '</TabsTrigger>',
+      "<TabsContent value='brandboard' className='mt-4'>",
+      "<TabsTrigger value='brandboard' disabled={!ofvApproved}>",
+      '<BrandboardTab',
+      'clientId={clientId!}',
+      "import { BrandboardTab } from './brandboard-tab';",
+      'tenantId={tenantId!}',
+      'userId={user!.id}',
+      "{!ofvApproved && '🔒 '}Brandboard"
     ].sort(),
-    'F-119 sólo puede REEMPLAZAR las líneas donde nacía la `version`; cualquier otra ' +
-      'línea eliminada de la UI del núcleo está fuera del alcance autorizado'
+    'F-120 sólo puede ELIMINAR el bloque Brandboard de la pantalla del núcleo (R-23); ' +
+      'cualquier otra línea eliminada de la UI del núcleo está fuera del alcance ' +
+      'autorizado — incluidas las 3 consultas de carga, las 3 de señal `approved`, los 6 ' +
+      '`INSERT`, el `GenerationSourceNotice` de F-119 y la cadena `briefApproved` → ' +
+      '`personaApproved` (R-41)'
+  );
+  // Y el gate no se perdió: viajó con el tab. La contraparte (el `TabsTrigger` gateado
+  // presente EN EL DESTINO) la exige `tests/onboarding/f117-declarations.test.ts` T-12 R-29.
+  assert.ok(
+    eliminadas.includes(
+      "<TabsTrigger value='brandboard' disabled={!ofvApproved}>"
+    ),
+    'si el gate no aparece entre las líneas eliminadas del origen, el tab no se movió'
   );
 });
 
