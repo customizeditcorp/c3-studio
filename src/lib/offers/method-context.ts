@@ -205,8 +205,17 @@ export const OFV_METHOD_FIELDS_BY_STEP = {
   // AUSENTES A PROPÓSITO (CL-094):
   //   gbp_description   → único output sin link a ARC6 + "channel-specific GBP
   //                       constraints" + asset PÚBLICO de Google (F-104 / CL-092)
-  //   nurturing         → ARC5 "Handle Objections" → objeciones de la persona = F-C
-  //   social_content    → ARC5/ARC7 → ídem
+  //   nurturing         → ARC1+ARC5 "Handle Objections" → objeciones de la persona
+  //                       (cableado en F-117: `PERSONA_DOWNSTREAM_FIELDS_BY_STEP`)
+  //   social_content    → ⚠️ CORRECCIÓN DE GROUNDING (F-117 / H-1). Este comentario
+  //                       decía "ARC5/ARC7 → ídem", igual que CL-094. El canon dice
+  //                       otra cosa: `wiki/onboarding/social-content.md` § "Método
+  //                       relacionado" = ARC1 + **ARC7 (Referrals & Re-sales)**, SIN
+  //                       ARC5. ARC7 no pide objeciones: pivota sobre el DOLOR
+  //                       ("¿A quién conoces que sufra el mismo dolor que tenías?").
+  //                       F-117 le reparte `main_pain`/`secondary_pains`, NO objeciones.
+  //                       Lo que NO cambia es esta tabla: `social_content` sigue fuera
+  //                       del reparto de la OFV por la misma razón que `nurturing`.
   //   buyer_persona/ofv → no consumen OFV (`needsOffer` no los incluye)
 } as const satisfies Record<string, readonly OfvMethodField[]>;
 

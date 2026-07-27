@@ -107,10 +107,29 @@ serve(async (req) => {
       }
     }
 
+    // ⚠️ F-117 R-05/R-05.1 — RETIRO DE `gbp_description` POR CL-092, **SOBRE CÓDIGO A LA
+    // DERIVA**. Dos cosas que no se pueden confundir:
+    //
+    // 1. **El retiro cumple CL-092.** `gbp_description` produce la descripción del mismo
+    //    perfil público de Google que `generate-gbp`, y el operador decidió que el GBP se
+    //    queda con brief + OFV: la persona NO entra. La lista de abajo la incluía, igual
+    //    que la de `src/app/api/generate-content/route.ts` antes de F-117.
+    //
+    // 2. **Esto NO restaura paridad.** Esta Edge Function es una copia PARALELA y
+    //    DORMIDA del ensamblado de contexto que **no recibió F-110, F-111, F-112, F-113
+    //    ni F-116**: sigue con `.limit(1).single()` en lugar de `pickCanonicalContentRow`
+    //    /`pickCanonicalOffer`, sin `buildOfvMethodLines` (F-111), sin
+    //    `buildPersonaMethodBlock` (F-112), sin `buildPersonaDownstreamBlock` (F-117) y
+    //    sin el contrato de claves de F-116. **No es el path vivo**: la UI llama a
+    //    `/api/generate-content` (ver `src/lib/edge-functions.ts:13-27` — *"Uses the
+    //    Next.js API route … This avoids Supabase Edge Function auth complexity"*).
+    //
+    // El backport completo (o el retiro del archivo) queda declarado como DEUDA para la
+    // Fase D/E. Leer este cambio como "las dos copias volvieron a estar alineadas" sería
+    // falso.
     if (
       [
         'ofv',
-        'gbp_description',
         'gbp_posts',
         'campaign_copy',
         'website_home',
