@@ -19,9 +19,20 @@
  * **Lo que NO hace (R-13, DT-2):** no reemplaza el blob. El mapeo canónico cubre 10 de
  * los ~37 campos de `PersonaFields`; reemplazarlo descartaría en silencio los otros
  * ~27 (estilo de vida, `past_attempts`/`why_failed` = material ARC5,
- * `hidden_costs`/`emotional_impact` = material de landing) y dejaría la generación
+ * `hidden_costs` = material de landing) y dejaría la generación
  * **sin persona alguna** cuando el extractor degrada a vacío. El blob queda intacto y
  * este bloque se **anexa** después.
+ *
+ * **F-116 (CL-102/CL-104), carry-forward a la Fase C.** El campo `emotional_impact`
+ * —que este comentario citaba como material de landing— salió del tipo del núcleo
+ * junto a `values`, `expansion`, `provider_frustrations` y `fears`: eran claves que
+ * NINGUNA fila de `buyer_personas` producía. Su sustancia sigue generándose dentro
+ * de la clave declarada de su propio bloque (el impacto emocional viaja en
+ * `hidden_costs`). Si la Fase C ordena el downstream y la landing necesita el campo
+ * separado, se reintroduce COMO CAMPO DEL DOWNSTREAM QUE LO CONSUME (CL-094), nunca
+ * como campo del núcleo. `dream_result` es el caso inverso y por eso NO se tocó:
+ * estaba en este mapeo sin que nada lo produjera, y F-116 lo declara en el contrato
+ * del prompt del buyer — el eslabón pasa de inerte a vivo.
  *
  * **CL-092:** este módulo NO alimenta el GBP. `PERSONA_METHOD_STEPS = ['ofv']` y el
  * default para cualquier step no listado es omitir.

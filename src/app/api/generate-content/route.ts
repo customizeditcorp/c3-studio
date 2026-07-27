@@ -173,6 +173,14 @@ export async function POST(request: NextRequest) {
     if (tenantPrompt) {
       prompt = tenantPrompt;
     } else {
+      // F-116 R-25 (DT-5) — DEFENSA MULTI-TENANT DELIBERADA, NO código olvidado.
+      // Este fallback resuelve la fila global (`tenant_id IS NULL`) cuando el
+      // tenant no tiene su propia versión del prompt. Hoy NO tiene filas: los 11
+      // prompts viven bajo el tenant `__primary__` (F-101), así que la rama nunca
+      // se toma en producción. Se CONSERVA a propósito: retirarla convertiría en
+      // 404 lo que hoy degrada, y lo haría sobre el read-path COMPARTIDO por el
+      // núcleo y el downstream. Si la Fase C/D decide que el producto es
+      // mono-tenant, el retiro va ahí, aislado. (Deuda declarada, conventions §12.4.)
       const { data: globalPrompt, error: gpErr } = await supabase
         .from('prompt_versions')
         .select(promptSelect)

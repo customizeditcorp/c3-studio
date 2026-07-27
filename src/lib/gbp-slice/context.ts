@@ -68,11 +68,7 @@ export function normalizeOffer(offer: RawOfferRow): NormalizedOffer {
     social_proof:
       toStringArray(offer.social_proof).length > 0
         ? toStringArray(offer.social_proof)
-        : toStringArray(c.social_proof),
-    raw_text:
-      typeof (c as Record<string, unknown>).raw_text === 'string'
-        ? ((c as Record<string, unknown>).raw_text as string)
-        : null
+        : toStringArray(c.social_proof)
   };
 }
 
