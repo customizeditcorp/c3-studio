@@ -237,19 +237,70 @@ test('T-12 ⭐ R-28 la declaración del Brandboard existe, nombra el GATE y difi
   assert.match(DOC_BRANDBOARD, /brandboard-tab\.tsx/);
 });
 
-test('T-12 ⭐ R-29 la UI del Brandboard es BYTE-IDÉNTICA a `HEAD` (F-117 declara, no mueve)', () => {
-  for (const rel of [PAGE_REL, TAB_REL]) {
-    const working = read(rel);
-    const enHead = execFileSync('git', ['show', `HEAD:${rel}`], {
+/**
+ * **⤫ F-119 — GUARD PREEXISTENTE RE-ANCLADO (no debilitado).** *(Mismo patrón e idéntica
+ * autorización que los re-anclajes ⤫ F-118 de `f116`/`f117` — lección CL-107 / F-118 H-5.)*
+ *
+ * La intención de R-29 es **que el Brandboard no se mueva**: F-117 lo *declara* alojado por
+ * conveniencia de gating, y el traslado es de la Fase F. Esa intención **sigue viva y se
+ * preserva entera**. Lo que dejó de ser cierto es el vehículo: *"`page.tsx` byte-idéntico a
+ * `HEAD`"* — F-119 (Fase E) edita ese archivo por diseño, en partes que **nada tienen que ver
+ * con el Brandboard** (derivación de `version` + señal de procedencia). Y contra `HEAD` el
+ * guard volvería a verde **por movimiento del ancla** al commitear, afirmando algo ya falso.
+ *
+ * Re-anclaje: `brandboard-tab.tsx` sigue exigido **byte-idéntico** (es LA UI del Brandboard),
+ * contra el **commit FIJO `2c072b6`** en vez de `HEAD`; y de `page.tsx` se exige que **el
+ * Brandboard no se haya movido**: mismo `TabsTrigger` gateado, mismo `TabsContent`, mismo
+ * import del tab, y **cero** líneas del bloque Brandboard tocadas por el diff de F-119.
+ */
+test('T-12 ⭐ R-29 (⤫ F-119) el Brandboard NO se movió: `brandboard-tab.tsx` byte-idéntico a `2c072b6` y su bloque en `page.tsx` intacto', () => {
+  const BASE = '2c072b6';
+  const desde = (rel: string): string =>
+    execFileSync('git', ['show', `${BASE}:${rel}`], {
       cwd: REPO,
-      encoding: 'utf8'
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024
     });
-    assert.equal(
-      working,
-      enHead,
-      `${rel}: F-117 no toca la UI del Brandboard — el traslado es de la Fase F (R-29)`
+  // La UI del Brandboard propiamente dicha: byte-identidad plena, ancla FIJA.
+  assert.equal(
+    read(TAB_REL),
+    desde(TAB_REL),
+    `${TAB_REL}: el traslado del Brandboard es de la Fase F (R-29) — F-119 no lo toca`
+  );
+  // Y en `page.tsx`, el bloque del Brandboard sigue exactamente donde y como estaba.
+  const PAGE = read(PAGE_REL);
+  const BASE_PAGE = desde(PAGE_REL);
+  const bloqueBrandboard = (src: string): string => {
+    const i = src.indexOf("<TabsContent value='brandboard'");
+    assert.ok(i > 0, 'no se encontró el `TabsContent` del Brandboard');
+    return src.slice(i, src.indexOf('</TabsContent>', i));
+  };
+  assert.equal(bloqueBrandboard(PAGE), bloqueBrandboard(BASE_PAGE));
+  for (const src of [PAGE, BASE_PAGE]) {
+    assert.match(
+      src,
+      /<TabsTrigger\s+value='brandboard'\s+disabled=\{\s*!ofvApproved\s*\}/
     );
+    assert.match(src, /BrandboardTab/);
   }
+  // El diff de F-119 sobre `page.tsx` no menciona el Brandboard en ninguna línea.
+  const diff = execFileSync('git', ['diff', BASE, '--', PAGE_REL], {
+    cwd: REPO,
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024
+  })
+    .split('\n')
+    .filter(
+      (l) =>
+        (l.startsWith('+') || l.startsWith('-')) &&
+        !l.startsWith('+++') &&
+        !l.startsWith('---')
+    );
+  assert.deepEqual(
+    diff.filter((l) => /brandboard/i.test(l)),
+    [],
+    'F-119 no puede tocar ninguna línea del Brandboard (R-29: el traslado es Fase F)'
+  );
 });
 
 test('T-12 R-29 el gate `disabled={!ofvApproved}` sigue vivo en el `TabsTrigger`', () => {

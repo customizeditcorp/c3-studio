@@ -306,8 +306,83 @@ test('T-09 ⭐ R-20 el prompt `buyer_persona` es BYTE-IDÉNTICO a `HEAD` (F-117 
   assert.equal(read(rel), head(rel));
 });
 
-test('T-09 ⭐ R-20 la UI del núcleo y la interfaz `PersonaFields` son BYTE-IDÉNTICAS a `HEAD`', () => {
-  assert.equal(read(CORE_PAGE_REL), head(CORE_PAGE_REL));
+/**
+ * **⤫ F-119 — GUARD PREEXISTENTE RE-ANCLADO (no debilitado).** *(Mismo patrón e idéntica
+ * autorización que el cruce ⤫ F-117 R-24 sobre los guards de F-113, y que los re-anclajes
+ * ⤫ F-118 de `f116`/`f117` — lección CL-107 / F-118 H-5.)*
+ *
+ * El enunciado original —*"la UI del núcleo es BYTE-IDÉNTICA a `HEAD`"*— **dejó de describir
+ * el mundo**: F-119 (Fase E) edita `page.tsx` por diseño. Y comparar contra `HEAD` lo volvería
+ * verde **por movimiento del ancla** en cuanto F-119 commitee, afirmando algo ya falso. Se
+ * re-ancla en dos sentidos:
+ *
+ *   1. el ancla deja de ser `HEAD` y pasa a ser el **commit FIJO `2c072b6`** (`main` antes de
+ *      F-119) ⇒ verde en el working tree SIN commit y sensible a cualquier edición posterior;
+ *   2. el guard deja de medir *ausencia de cambios* y pasa a medir **alcance autorizado**: la
+ *      intención real (R-20/R-23, CL-105) es que **el NÚCLEO no gane campos** — que
+ *      `PersonaFields` y su `emptyPersona` no crezcan. F-119 no toca ni uno: sólo añade la
+ *      derivación de `version` (a) y la señal de procedencia (b).
+ *
+ * Muerde: si alguien añadiera un campo a `PersonaFields`, o **borrara** cualquier línea de la
+ * UI fuera de las 6 autorizadas, esto queda rojo.
+ */
+test('T-09 ⭐ R-20 (⤫ F-119) el NÚCLEO no gana campos: `PersonaFields`/`emptyPersona` BYTE-IDÉNTICOS a `2c072b6`, y el delta de la UI es SÓLO el autorizado', () => {
+  const BASE = '2c072b6';
+  const base = execFileSync('git', ['show', `${BASE}:${CORE_PAGE_REL}`], {
+    cwd: REPO,
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024
+  });
+  const actual = read(CORE_PAGE_REL);
+  /** Bloque `<decl> … {` … `}` balanceado por llaves. */
+  const bloque = (src: string, marcador: string): string => {
+    const i = src.indexOf(marcador);
+    assert.ok(i > 0, `no se encontró ${marcador}`);
+    let d = 0;
+    let j = src.indexOf('{', i);
+    for (; j < src.length; j++) {
+      if (src[j] === '{') d++;
+      else if (src[j] === '}') {
+        d--;
+        if (d === 0) break;
+      }
+    }
+    return src.slice(i, j + 1);
+  };
+  // (1) La intención literal de R-20/R-23: el núcleo NO gana campos de persona.
+  assert.equal(
+    bloque(actual, 'interface PersonaFields'),
+    bloque(base, 'interface PersonaFields'),
+    'CL-105: el núcleo no puede ganar campos de persona'
+  );
+  assert.equal(
+    bloque(actual, 'const emptyPersona'),
+    bloque(base, 'const emptyPersona')
+  );
+  // (2) Alcance autorizado: el delta de F-119 no ELIMINA nada fuera de las 6 líneas de
+  // `version` que la feature reemplaza por el seam (R-10/R-12). Todo lo demás es adición.
+  const diff = execFileSync('git', ['diff', BASE, '--', CORE_PAGE_REL], {
+    cwd: REPO,
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024
+  });
+  const eliminadas = diff
+    .split('\n')
+    .filter((l) => l.startsWith('-') && !l.startsWith('---'))
+    .map((l) => l.slice(1).trim());
+  assert.deepEqual(
+    eliminadas.sort(),
+    [
+      "status: 'approved'",
+      "status: 'approved'",
+      "status: 'draft'",
+      'version: 1',
+      'version: 1,',
+      "{ status: 'draft' }"
+    ].sort(),
+    'F-119 sólo puede REEMPLAZAR las líneas donde nacía la `version`; cualquier otra ' +
+      'línea eliminada de la UI del núcleo está fuera del alcance autorizado'
+  );
 });
 
 test('T-09 ⭐ R-23 el contrato de F-112 sobrevive el refactor: exports, 10 etiquetas y `["ofv"]`', () => {

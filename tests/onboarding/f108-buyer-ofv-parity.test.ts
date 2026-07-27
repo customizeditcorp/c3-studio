@@ -69,8 +69,21 @@ test('T-08 handleApprovePersona: ya NO tiene early-return por !personaRecord (R-
   assert.doesNotMatch(body, /if\s*\(\s*!personaRecord[^)]*\)\s*return/);
 });
 
+/**
+ * **⤫ F-119 — cruce no previsto, ventana AMPLIADA (no assert debilitado).**
+ *
+ * F-119 R-10/R-12 añade `version: await nextVersionFor('buyer_personas')` dentro del objeto
+ * `opts` de `buildBriefWritePayload` (el parámetro que F-097 DT-04 había reservado), y el
+ * cuerpo del handler cruzó los 1600 caracteres de la ventana por **25**. La ventana es un
+ * mecanismo de aislamiento, **no** el contenido del assert: los 4 asserts quedan EXACTAMENTE
+ * como estaban y siguen mordiendo (si la rama insert-on-first-save desapareciera, rojo).
+ *
+ * Precedente idéntico en este mismo repo: `f084-city-state` documenta dos ampliaciones
+ * previas — *"F-097/F-109: los handlers crecieron → ventana ampliada para seguir capturando
+ * … Intent intacto"* — y este mismo archivo ya usa `2000` para `handleSaveDraftPersona`.
+ */
 test('T-08 handleApprovePersona: rama insert-si-no + buildBriefWritePayload approved (R-04/R-08)', () => {
-  const body = sliceFrom(pageSrc, 'const handleApprovePersona');
+  const body = sliceFrom(pageSrc, 'const handleApprovePersona', 1800);
   assert.match(body, /\.from\('buyer_personas'\)\s*\.insert\(/);
   assert.match(body, /buildBriefWritePayload\(/);
   assert.match(body, /status:\s*'approved'/);

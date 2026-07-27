@@ -23,6 +23,21 @@ import {
 // F-109 — (c) guard de aprobación: bloquea aprobar vacío / esencialmente-todo-
 // placeholder. NO bloquea `[PENDIENTE]` legítimo (invariante F-104/F-106).
 import { assessApproval } from '@/lib/onboarding/approval-guard';
+// F-119 — (a) seam de versión: los 6 `INSERT` de esta superficie derivan su `version` de
+// `max(version)+1` por `(client_id, tabla)` en vez del literal `1`. HOY es un no-op
+// demostrable (estas ramas sólo disparan con la tabla VACÍA para ese cliente ⇒
+// `nextVersion([]) === 1`); se hace igual para que el invariante sea ESTRUCTURAL y no
+// dependa de razonar sobre estado de React (DT-03).
+import { nextVersion, type VersionedRow } from '@/lib/onboarding/next-version';
+// F-119 — (b) seam de procedencia: la superficie SEÑALA cuál fila alimenta la generación.
+// NO cambia de dónde salen los campos editables (R-25/R-26): la lectura `created_at desc`
+// SIN filtro de `status` es intencional y existe para que el operador siga editando su
+// borrador (F-113 R-35). Alinearla a ciegas le borraría el draft vivo de la pantalla.
+import {
+  resolveGenerationSource,
+  type GenerationCandidateRow,
+  type GenerationSourceResult
+} from '@/lib/onboarding/generation-source';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
@@ -143,6 +158,78 @@ function StatusBadge({ status }: { status: string }) {
       </Badge>
     );
   return <Badge variant='outline'>Borrador</Badge>;
+}
+
+/**
+ * F-119 (b) — Aviso NO BLOQUEANTE de procedencia (R-27/R-28/R-29/R-30).
+ *
+ * Hace visible una relación que hasta ahora era invisible: la superficie puede mostrarte una
+ * fila mientras el generador consume **otra**, sin que nada lo señale — el síntoma *"lo edité
+ * y no cambió nada"*. Reusa el lenguaje visual ya presente en el archivo (el mismo `div`
+ * `rounded-md border … px-3 py-2 text-xs` de los avisos existentes); NO crea superficie nueva.
+ *
+ * Reglas duras:
+ *   - **`aligned` ⇒ NO se renderiza NADA** (R-28): delta visual **cero** para los clientes ya
+ *     alineados ⇒ el control de no-regresión de (b) es observable, no argumentado.
+ *   - **Nunca deshabilita** edición, guardado ni aprobación (R-29): la divergencia la creó el
+ *     sistema, no el operador (anti-sobre-corrección, AGENTS.md §8.2).
+ *   - **Nunca ofrece ni ejecuta** promoción, copia ni aprobación automática (R-30): aprobar es
+ *     un gate humano explícito (F-109). A lo sumo EXPLICA que aprobar el borrador lo convierte
+ *     en la fila que genera.
+ *   - `none-approved` es su **propia clase**, no un sub-caso de `diverged` (R-21): sin fila
+ *     `approved` el generador **no recibe el artefacto en absoluto** (los read-paths de
+ *     contexto no tienen fallback).
+ */
+function GenerationSourceNotice({
+  source,
+  artifact
+}: {
+  source: GenerationSourceResult | null;
+  artifact: string;
+}) {
+  if (!source) return null;
+  if (source.state === 'aligned') return null; // R-28 — delta visual CERO
+  if (source.state === 'none-approved') {
+    return (
+      <div className='rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800'>
+        <span className='font-medium'>
+          Ninguna versión de {artifact} alimenta la generación.
+        </span>{' '}
+        No hay ninguna versión <strong>aprobada</strong> de este artefacto, y la
+        generación sólo consume versiones aprobadas. Podés seguir editando y
+        guardando este borrador; en cuanto lo apruebes, pasa a ser la versión
+        que alimenta la generación.
+      </div>
+    );
+  }
+  const id = source.canonicalId ?? '';
+  const aprobado = source.canonical?.approved_at
+    ? new Date(String(source.canonical.approved_at)).toLocaleDateString(
+        'es-MX',
+        {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric'
+        }
+      )
+    : null;
+  return (
+    <div className='rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800'>
+      <span className='font-medium'>
+        Estás editando una versión distinta de la que alimenta la generación.
+      </span>{' '}
+      La generación consume la versión <strong>aprobada</strong> de {artifact}{' '}
+      <code>{id.slice(0, 8)}</code>
+      {aprobado ? ` (aprobada el ${aprobado})` : ''}
+      {source.editableId ? (
+        <>
+          , y acá estás editando <code>{source.editableId.slice(0, 8)}</code>
+        </>
+      ) : null}
+      . Tus cambios se guardan igual; para que alimenten la generación, aprobá
+      esta versión.
+    </div>
+  );
 }
 
 function FieldDot({ type }: { type: 'auto' | 'manual' | 'ai' | 'diag' }) {
@@ -384,6 +471,35 @@ export default function BriefPage() {
   // F-108 R-07 — mirror de `savingDraft` del brief para la pestaña OFV.
   const [savingDraftOfv, setSavingDraftOfv] = useState(false);
 
+  // F-119 (b) R-20/R-24 — estado de PROCEDENCIA por artefacto: `aligned` | `diverged` |
+  // `none-approved`. Es INFORMACIÓN, no control: no gatea nada y no toca los campos.
+  const [briefSource, setBriefSource] = useState<GenerationSourceResult | null>(
+    null
+  );
+  const [personaSource, setPersonaSource] =
+    useState<GenerationSourceResult | null>(null);
+  const [ofvSource, setOfvSource] = useState<GenerationSourceResult | null>(
+    null
+  );
+
+  /**
+   * F-119 R-10/R-12 — `max(version)+1` del `(client_id, tabla)`, TODOS los `status` (R-05).
+   * Consulta ligera que corre en el camino de escritura de esta superficie; la rama que la
+   * usa (insert-on-first-save) sólo dispara cuando el cliente no tiene ninguna fila ⇒ hoy
+   * devuelve `1` y el comportamiento es byte-idéntico (R-02). Límite declarado (R-41): dos
+   * escrituras concurrentes pueden calcular el mismo `max+1` — degrada al empate previo a
+   * F-119, que el tie-break de F-113/F-109 resuelve. Por eso la red NO se retira (R-14).
+   */
+  const nextVersionFor = async (
+    table: 'briefs' | 'buyer_personas' | 'offers'
+  ): Promise<number> => {
+    const { data } = await supabase
+      .from(table)
+      .select('version')
+      .eq('client_id', clientId);
+    return nextVersion((data ?? []) as VersionedRow[]);
+  };
+
   useEffect(() => {
     if (!userLoading && tenantId && clientId) void loadData();
   }, [tenantId, userLoading, clientId]);
@@ -501,6 +617,66 @@ export default function BriefPage() {
       );
     }
 
+    // ---------------------------------------------------------------- //
+    // F-119 (b) — R-24/R-25/R-26: TRES lecturas ADICIONALES y de SOLO LECTURA
+    // ---------------------------------------------------------------- //
+    // Las 3 consultas de arriba quedan INTACTAS (`created_at desc`, SIN filtro de `status`,
+    // misma proyección): son las que pueblan los campos editables y **mandan** — el borrador
+    // vivo no desaparece, no se reemplaza y no se vuelve read-only (R-25/R-26).
+    //
+    // Estas 3 consultas nuevas resuelven, en paralelo, QUÉ FILA ALIMENTA LA GENERACIÓN, con
+    // EL MISMO selector y LOS MISMOS filtros que el generador (`client_id` + `status =
+    // 'approved'` + `order('version')` + `pickCanonicalContentRow`/`pickCanonicalOffer`,
+    // encapsulados en `resolveGenerationSource`). Divergir del generador emitiría una
+    // PROCEDENCIA FALSA — peor que no señalar nada (R-24, regla heredada de F-113 R-14/R-15).
+    //
+    // Proyección: la que cada selector necesita (`id, version, updated_at, content`;
+    // `+ big_promise` en `offers`) MÁS `approved_at`, que el aviso usa para decirle al
+    // operador desde cuándo esa fila es la que genera.
+    const { data: briefApprovedRows } = await supabase
+      .from('briefs')
+      .select('id, version, updated_at, content, approved_at')
+      .eq('client_id', clientId)
+      .eq('status', 'approved')
+      .order('version', { ascending: false });
+    setBriefSource(
+      resolveGenerationSource({
+        artifact: 'brief',
+        editable: (b as ContentRecord | null) ?? null,
+        approvedCandidates: (briefApprovedRows ??
+          []) as GenerationCandidateRow[]
+      })
+    );
+
+    const { data: personaApprovedRows } = await supabase
+      .from('buyer_personas')
+      .select('id, version, updated_at, content, approved_at')
+      .eq('client_id', clientId)
+      .eq('status', 'approved')
+      .order('version', { ascending: false });
+    setPersonaSource(
+      resolveGenerationSource({
+        artifact: 'persona',
+        editable: (p as ContentRecord | null) ?? null,
+        approvedCandidates: (personaApprovedRows ??
+          []) as GenerationCandidateRow[]
+      })
+    );
+
+    const { data: ofvApprovedRows } = await supabase
+      .from('offers')
+      .select('id, version, updated_at, content, big_promise, approved_at')
+      .eq('client_id', clientId)
+      .eq('status', 'approved')
+      .order('version', { ascending: false });
+    setOfvSource(
+      resolveGenerationSource({
+        artifact: 'offer',
+        editable: (o as ContentRecord | null) ?? null,
+        approvedCandidates: (ofvApprovedRows ?? []) as GenerationCandidateRow[]
+      })
+    );
+
     setLoading(false);
   };
 
@@ -562,6 +738,12 @@ export default function BriefPage() {
     }
   };
 
+  // F-119 R-10/R-11/R-12 — la `version` de la rama insert-on-first-save viaja por
+  // `opts.version`, el parámetro que F-097 DT-04 ya había reservado exactamente para esto:
+  // `src/lib/briefs/write-path.ts` NO se toca y su `?? 1` pasa a ser, correctamente, el
+  // default del caso "cliente sin filas". La rama `update` no manda `version`.
+  // (El comentario vive FUERA del cuerpo: `f084`/`f108` inspeccionan ventanas de tamaño
+  // fijo desde `const handle…` y crecer el cuerpo las desbordaría.)
   const handleApproveBrief = async () => {
     // F-097 R-02/R-04 — ya no early-return por `!briefRecord`: si no hay fila,
     // se CREA directamente `approved` (aprobar sin generar con AI).
@@ -577,7 +759,8 @@ export default function BriefPage() {
     try {
       // F-097 R-10/R-11 — payload con la columna `raw_text` sincronizada.
       const payload = buildBriefWritePayload(fieldsToContent(briefFields), {
-        status: 'approved'
+        status: 'approved',
+        version: await nextVersionFor('briefs')
       });
       // F-109 R-07 — sello de aprobación (columnas nullable ya existentes, SIN DDL).
       const approvedAt = new Date().toISOString();
@@ -644,8 +827,10 @@ export default function BriefPage() {
     setSavingDraft(true);
     try {
       // F-097 R-10/R-11 — payload con la columna `raw_text` sincronizada.
+      // F-119 R-10/R-12 — `version` del seam, dentro del objeto `opts`.
       const payload = buildBriefWritePayload(fieldsToContent(briefFields), {
-        status: 'draft'
+        status: 'draft',
+        version: await nextVersionFor('briefs')
       });
       if (briefRecord) {
         await supabase
@@ -731,9 +916,10 @@ export default function BriefPage() {
       // brief) → payload con la columna sincronizada vía buildBriefWritePayload.
       // `PersonaFields` no tiene index signature → se adapta al genérico de
       // `fieldsToContent` (Record<string,string>); runtime = Object.entries, ok.
+      // F-119 R-10/R-12 — `version` desde el seam, dentro del objeto `opts`.
       const payload = buildBriefWritePayload(
         fieldsToContent(personaFields as unknown as Record<string, string>),
-        { status: 'draft' }
+        { status: 'draft', version: await nextVersionFor('buyer_personas') }
       );
       if (personaRecord) {
         // F-108 R-03 — update-in-place (conserva id).
@@ -766,6 +952,8 @@ export default function BriefPage() {
     }
   };
 
+  // F-119 R-10/R-12 — `version` del seam en `opts` (ídem `handleApproveBrief`). El
+  // comentario vive fuera del cuerpo por las ventanas fijas de `f108` (ver arriba).
   const handleApprovePersona = async () => {
     // F-108 R-04/R-06 — ya no early-return por `!personaRecord`: si no hay fila,
     // se CREA directamente `approved` (aprobar sin generar con AI).
@@ -779,7 +967,8 @@ export default function BriefPage() {
     try {
       // F-108 R-08 — payload con la columna `raw_text` sincronizada.
       const payload = buildBriefWritePayload(fieldsToContent(personaFields), {
-        status: 'approved'
+        status: 'approved',
+        version: await nextVersionFor('buyer_personas')
       });
       // F-109 R-07 — sello de aprobación (columnas nullable ya existentes, SIN DDL).
       const approvedAt = new Date().toISOString();
@@ -904,7 +1093,9 @@ export default function BriefPage() {
             content: ofvContent,
             ...columns,
             status: 'draft',
-            version: 1
+            // F-119 R-10 — `version` desde el seam (`offers` no pasa por
+            // `buildBriefWritePayload`, así que acá reemplaza al literal `1`).
+            version: await nextVersionFor('offers')
           })
           .select('id, content, status, created_at')
           .single();
@@ -958,7 +1149,8 @@ export default function BriefPage() {
             content: ofvContent,
             ...columns,
             status: 'approved',
-            version: 1,
+            // F-119 R-10 — `version` desde el seam (reemplaza el literal `1`).
+            version: await nextVersionFor('offers'),
             approved_by: user.id, // F-109 R-07
             approved_at: approvedAt // F-109 R-07
           })
@@ -1045,6 +1237,9 @@ export default function BriefPage() {
               <h3 className='text-sm font-medium'>Brief del negocio</h3>
               {briefRecord && <StatusBadge status={briefRecord.status} />}
             </div>
+
+            {/* F-119 (b) — aviso de procedencia, no bloqueante. `aligned` ⇒ nada. */}
+            <GenerationSourceNotice source={briefSource} artifact='el brief' />
 
             {/* Block 1 */}
             <BlockCard
@@ -1581,6 +1776,12 @@ export default function BriefPage() {
               {personaRecord && <StatusBadge status={personaRecord.status} />}
             </div>
 
+            {/* F-119 (b) — aviso de procedencia, no bloqueante. `aligned` ⇒ nada. */}
+            <GenerationSourceNotice
+              source={personaSource}
+              artifact='la buyer persona'
+            />
+
             {briefApproved && (
               <div className='text-muted-foreground rounded-md border border-blue-100 bg-blue-50/40 px-3 py-2 text-xs'>
                 El AI usará el perfil del cliente ideal del Brief como punto de
@@ -1937,6 +2138,9 @@ export default function BriefPage() {
               <h3 className='text-sm font-medium'>Oferta de Valor (OFV)</h3>
               {ofvRecord && <StatusBadge status={ofvRecord.status} />}
             </div>
+
+            {/* F-119 (b) — aviso de procedencia, no bloqueante. `aligned` ⇒ nada. */}
+            <GenerationSourceNotice source={ofvSource} artifact='la OFV' />
 
             {!personaApproved ? (
               <Card>

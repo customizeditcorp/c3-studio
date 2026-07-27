@@ -38,6 +38,11 @@ const stripComments = (src: string): string =>
   src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
 const SELECTOR_CODE = stripComments(SELECTOR);
+// ⤫ F-119 — mismo criterio que arriba: el guard de "la UI no usa los selectores" mira el
+// CÓDIGO, no la prosa. El header del bloque de lecturas `approved` de `page.tsx` NOMBRA
+// `pickCanonicalContentRow`/`pickCanonicalOffer` para explicar de dónde sale el criterio —
+// eso es documentación, no una dependencia.
+const PAGE_CODE = stripComments(PAGE);
 const OFFERS_SELECTOR_CODE = stripComments(OFFERS_SELECTOR);
 
 /**
@@ -442,7 +447,19 @@ test('T-11 ⭐ R-24 sin DDL ni migración de F-113', () => {
   }
 });
 
-test('T-11 ⭐ R-24 el write-path NO se tocó: `buildBriefWritePayload` conserva `version: opts.version ?? 1` (causa raíz declarada, DT-06)', () => {
+/**
+ * **⤫ F-119 — anotación de cruce, SIN debilitar ningún assert.** Los 3 asserts quedan
+ * **exactamente** como estaban y siguen verdes: F-119 **no toca** `briefs/write-path.ts`
+ * (R-11) — la `version` calculada viaja por `opts.version`, el parámetro que F-097 DT-04
+ * ya había reservado y que este helper ya honraba.
+ *
+ * Lo que sí cambió es el **paréntesis del título**: *"(causa raíz declarada, DT-06)"* dejó de
+ * describir el mundo. La causa raíz **ya no está viva**: F-119 cortó la fuente en
+ * `generate-content/route.ts` (el único call-site que producía empates) y el `?? 1` pasó a
+ * ser, correctamente, **el default del caso "cliente sin filas"** — el único escenario en
+ * que la UI inserta con la tabla vacía. Se anota; no se afloja nada.
+ */
+test('T-11 ⭐ R-24 (⤫ F-119) el write-path NO se tocó: `buildBriefWritePayload` conserva `version: opts.version ?? 1` — que con F-119 es el DEFAULT del caso "cliente sin filas", ya no la causa raíz', () => {
   assert.match(BRIEF_WRITE_PATH, /export\s+function\s+buildBriefWritePayload/);
   assert.match(BRIEF_WRITE_PATH, /version:\s*opts\.version\s*\?\?\s*1/);
   assert.doesNotMatch(
@@ -451,14 +468,108 @@ test('T-11 ⭐ R-24 el write-path NO se tocó: `buildBriefWritePayload` conserva
   );
 });
 
-test('T-11 ⭐ R-20/R-24 la UI (`onboarding/brief/[clientId]/page.tsx`) NO se tocó — DT-04 es el incremento SIGUIENTE', () => {
-  assert.doesNotMatch(PAGE, /pickCanonicalContentRow|select-canonical-row/);
-  // Sigue cargando por `created_at desc` y SIN filtro de status (divergencia declarada
-  // en R-35: F-113 converge DE FACTO para SCS, no por construcción).
+/**
+ * **⤫ F-119 — GUARD PREEXISTENTE RE-ANCLADO (R-37). Reescrito preservando la intención, NO
+ * borrado ni vaciado.** *(Mismo patrón e idéntica autorización que el cruce ⤫ F-117 R-24 de
+ * más arriba en este mismo archivo.)*
+ *
+ * El enunciado original decía *"la UI NO se tocó — **DT-04 es el incremento SIGUIENTE**"*.
+ * **F-119 ES ese incremento**, así que el enunciado dejó de describir el mundo.
+ *
+ * ⚠️ **Y hay una trampa que había que NO tomar:** F-119 encapsula los selectores dentro de
+ * `src/lib/onboarding/generation-source.ts`, de modo que `page.tsx` **no menciona**
+ * `pickCanonicalContentRow` ni `select-canonical-row` ⇒ el `assert.doesNotMatch(PAGE, …)`
+ * original **habría seguido pasando tal cual**. Dejarlo así sería preservar la letra y
+ * derrotar el espíritu — exactamente el alias que F-118 revirtió en H-4. **Se re-ancla igual.**
+ *
+ * Nuevo enunciado, con el alcance autorizado explícito: la UI consume selección canónica
+ * **sólo** a través del seam de procedencia y **sólo para señalizar**; los campos editables se
+ * siguen poblando desde la lectura `created_at desc` **SIN** filtro de `status` (F-113 R-35,
+ * F-119 R-25/R-26) — que es lo que sigue asertado, y ahora de forma que **muerde**: si la UI
+ * poblara los campos desde la fila canónica, esto queda rojo.
+ */
+test('T-11 ⭐ R-20/R-24 (⤫ F-119 R-37) la UI usa selección canónica SÓLO vía el seam de procedencia y SÓLO para señalizar: los campos editables siguen saliendo de `created_at desc` SIN filtro de `status`', () => {
+  // (i) La UI no re-implementa el criterio canónico ni lo importa directo: el ÚNICO camino
+  //     autorizado es el seam de procedencia (que a su vez delega en los selectores, R-24).
+  assert.doesNotMatch(
+    PAGE_CODE,
+    /pickCanonicalContentRow|pickCanonicalOffer|contentRichness|select-canonical/,
+    'la UI no puede usar los selectores directamente: sólo a través de ' +
+      '`generation-source`, que garantiza el MISMO criterio que el generador (R-24)'
+  );
   assert.match(
     PAGE,
-    /\.order\(\s*'created_at',\s*\{\s*ascending:\s*false\s*\}\s*\)/
+    /import\s*\{[\s\S]*?resolveGenerationSource[\s\S]*?\}\s*from\s*'@\/lib\/onboarding\/generation-source'/
   );
+  // (ii) ⭐ EL CORAZÓN DEL GUARD (R-25/R-26): las 3 consultas que POBLAN los campos siguen
+  //      siendo `created_at desc`, `limit(1)`, `maybeSingle()` y SIN `.eq('status', …)`.
+  //      El borrador vivo no desaparece de la pantalla. Si alguien las alineara a la
+  //      canónica, esto queda rojo.
+  for (const tabla of ['briefs', 'buyer_personas', 'offers']) {
+    // Las consultas EDITABLES son las que terminan en `maybeSingle()`: la de la carga
+    // inicial y la relectura post-generación. Son 2 por tabla y ninguna puede filtrar
+    // por `status`.
+    const editables = statements(PAGE, tabla).filter((s) =>
+      /\.maybeSingle\(\)/.test(s)
+    );
+    assert.equal(
+      editables.length,
+      2,
+      `deben ser exactamente 2 consultas EDITABLES de ${tabla} (carga + relectura ` +
+        'post-generación); una consulta editable nueva o perdida cambia de dónde salen ' +
+        'los campos'
+    );
+    for (const carga of editables) {
+      assert.match(
+        carga,
+        /\.order\(\s*'created_at',\s*\{\s*ascending:\s*false\s*\}\s*\)/
+      );
+      assert.match(carga, /\.limit\(\s*1\s*\)/);
+      assert.doesNotMatch(
+        carga,
+        /\.eq\(\s*'status'/,
+        `una carga editable de ${tabla} ganó un filtro de \`status\`: eso BORRARÍA el ` +
+          'borrador vivo del operador (F-113 R-35, F-119 R-25 · caso real: el draft ' +
+          '`9a5357b6` de JD Valley)'
+      );
+    }
+    // Y las consultas de SEÑAL (F-119 R-24) son las `approved`: una por tabla, read-only.
+    const senal = statements(PAGE, tabla).filter((s) =>
+      /\.eq\(\s*'status',\s*'approved'\s*\)/.test(s)
+    );
+    assert.equal(
+      senal.length,
+      1,
+      `debe haber exactamente 1 consulta ADICIONAL \`approved\` de ${tabla} (la señal)`
+    );
+    assert.match(senal[0], /\.select\(/);
+    assert.doesNotMatch(
+      senal[0],
+      /\.insert\(|\.update\(|\.upsert\(|\.delete\(/
+    );
+  }
+  // (iii) Y los campos se pueblan desde el record editable, NO desde los candidatos approved.
+  for (const [setter, record] of [
+    ['setBriefFields', 'b.content'],
+    ['setPersonaFields', 'p.content'],
+    ['setOfvFields', 'o.content']
+  ] as const) {
+    assert.match(
+      PAGE,
+      new RegExp(`${setter}\\s*\\(`),
+      `${setter} desapareció de la carga`
+    );
+    assert.ok(
+      PAGE.includes(record),
+      `los campos editables deben poblarse desde \`${record}\` (la fila editable)`
+    );
+  }
+  assert.doesNotMatch(
+    PAGE,
+    /set(Brief|Persona|Ofv)Fields\s*\(\s*parseContentToFields\s*\(\s*\w*[Aa]pproved/,
+    'los campos editables NO pueden poblarse desde los candidatos `approved`'
+  );
+  // (iv) Los helpers de proyección de la UI siguen ahí (no se rediseñó la superficie).
   assert.match(PAGE, /function\s+parseContentToFields\s*</);
   assert.match(PAGE, /function\s+fieldsToContent\s*</);
 });
