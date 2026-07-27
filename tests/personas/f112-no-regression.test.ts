@@ -73,15 +73,34 @@ test('T-10 R-11 la llamada usa el seam puro con el `step` y la fila `persona`', 
 
 /* ---- R-18: consulta, gating y resto del contextChain sin cambios --------------- */
 
-test('T-10 R-18 `needsPersona` conserva sus 9 steps, sin altas ni bajas', () => {
+/**
+ * **F-117 (R-24) — GUARD PREEXISTENTE CRUZADO POR DISEÑO. Reescrito preservando la
+ * intención, NO borrado ni vaciado.** *(Mismo patrón e idéntica autorización que el
+ * cruce de F-113 R-21 sobre los marcadores de F-112, documentado más abajo.)*
+ *
+ * Este guard nació en F-112 para fijar que **la lista de persona no cambia por
+ * accidente**: sus 9 steps eran `ofv` + los 8 de contenido, sin altas ni bajas.
+ *
+ * **F-117 hace una BAJA DELIBERADA, y es el objeto mismo de la feature:**
+ * `gbp_description` sale de `needsPersona` por **CL-092** — la decisión del operador de
+ * que el GBP se queda con **brief + OFV** y la buyer persona **no entra**.
+ * `gbp_description` produce la descripción del **mismo perfil público de Google** que
+ * `/api/generate-gbp` (que ya cumplía: 0 referencias a `buyer_personas`), así que este
+ * segundo camino estaba violando la decisión **en silencio**.
+ *
+ * **La intención se preserva y se REFUERZA:** el guard sigue exigiendo conteo exacto,
+ * sigue exigiendo que `buyer_persona` no entre, y ahora exige además que
+ * `gbp_description` esté **AUSENTE**. Pasa de "no se pierda ningún step" a "no se
+ * pierda ninguno de los 8 **y** no vuelva el noveno". Es más fuerte, no más débil.
+ */
+test('T-10 R-18 (⤫ F-117 R-24) `needsPersona` conserva sus 8 steps, con `gbp_description` AUSENTE por CL-092', () => {
   const i = ROUTE.search(/const\s+needsPersona\s*=/);
   assert.ok(i >= 0);
   const block = ROUTE.slice(i, ROUTE.indexOf('.includes(step)', i));
-  // Los 9 steps reales: `ofv` + los 8 de contenido. `buyer_persona` NO está (se
-  // GENERA la persona, no se consume) — por eso los "otros 8" de R-16 son 8, no 9.
+  // Los 8 steps reales tras F-117: `ofv` + los 7 de contenido que SÍ consumen persona.
+  // `buyer_persona` NO está (se GENERA la persona, no se consume).
   for (const step of [
     'ofv',
-    'gbp_description',
     'gbp_posts',
     'campaign_copy',
     'website_home',
@@ -99,7 +118,13 @@ test('T-10 R-18 `needsPersona` conserva sus 9 steps, sin altas ni bajas', () => 
     !block.includes("'buyer_persona'"),
     'needsPersona ganó un step nuevo'
   );
-  assert.equal((block.match(/'/g) ?? []).length / 2, 9);
+  assert.ok(
+    !block.includes("'gbp_description'"),
+    'CL-092 (decisión del operador): el GBP se queda con brief + OFV; la buyer ' +
+      'persona NO entra. Reintroducir `gbp_description` acá vuelve a violar la ' +
+      'decisión en silencio — es el defecto que F-117 vino a cerrar.'
+  );
+  assert.equal((block.match(/'/g) ?? []).length / 2, 8);
 });
 
 /**

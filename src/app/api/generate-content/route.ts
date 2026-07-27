@@ -61,8 +61,12 @@ import {
 // F-112 — operación ESPEJO de F-111 del lado de la persona (CL-094): extrae los 10
 // campos canónicos de `buyer_personas` y los ANEXA etiquetados SOLO para el step `ofv`
 // (default-deny). El blob `## BUYER PERSONA (APROBADO)` queda intacto (R-13).
+// F-117 — segundo seam del MISMO módulo: el reparto núcleo→CANAL por step
+// (`nurturing` = ARC5 objeciones · `social_content` = ARC7 dolor · `website_*` =
+// dolor dominante + costos ocultos), también default-deny.
 import {
   buildPersonaMethodBlock,
+  buildPersonaDownstreamBlock,
   type RawPersonaRow
 } from '@/lib/personas/method-context';
 // F-102 — seams puros: temperature controlada + parse con señal de usabilidad (`ok`)
@@ -269,9 +273,18 @@ export async function POST(request: NextRequest) {
       'nurturing',
       'social_content'
     ].includes(step);
+    // F-117 R-01/R-02/R-03 (CL-092) — `gbp_description` SALIÓ de esta lista.
+    // `gbp_description` produce la descripción del **mismo perfil público de Google**
+    // que `/api/generate-gbp`, y el operador decidió en CL-092 que el GBP se queda con
+    // brief + OFV: la buyer persona NO entra. `generate-gbp` ya cumplía (0 referencias a
+    // `buyer_personas`); este segundo camino al mismo asset la violaba en silencio.
+    // El aislamiento es de ACCESO, no sólo de render: la consulta a `buyer_personas`
+    // vive DENTRO de `if (needsPersona)`, así que para `gbp_description` no se emite el
+    // bloque `## BUYER PERSONA (APROBADO)` **y tampoco se ejecuta la consulta**.
+    // Anti-regresión: `tests/personas/f117-no-regression.test.ts` se pone rojo nombrando
+    // CL-092 si alguien reintroduce el literal acá (o en la copia edge).
     const needsPersona = [
       'ofv',
-      'gbp_description',
       'gbp_posts',
       'campaign_copy',
       'website_home',
@@ -335,6 +348,16 @@ export async function POST(request: NextRequest) {
         // F-112 R-11/R-13 — COMPLEMENTA, no reemplaza: el blob de arriba queda
         // intacto y acá se ANEXA el bloque campo-a-campo, sólo para el step `ofv`.
         contextChain += buildPersonaMethodBlock({
+          step,
+          persona: persona as RawPersonaRow
+        });
+        // F-117 R-19 (Fase C / CL-102 mandato 2) — ANEXA el reparto núcleo→CANAL,
+        // después del blob y después del bloque de F-112, sin reordenar ni reescribir
+        // ninguna línea previa. Los dos bloques NUNCA coexisten: `ofv` no está en
+        // `PERSONA_DOWNSTREAM_FIELDS_BY_STEP` y ningún step del reparto está en
+        // `PERSONA_METHOD_STEPS` ⇒ el aporte de F-117 al step `ofv` es `''`, que es la
+        // forma ESTRUCTURAL de su byte-identidad (R-21/R-22).
+        contextChain += buildPersonaDownstreamBlock({
           step,
           persona: persona as RawPersonaRow
         });
@@ -734,6 +757,21 @@ export async function POST(request: NextRequest) {
           validatedContent,
           methodGrounding
         );
+        // F-117 R-30 — QUÉ ES `generated_outputs` (declaración; ver
+        // `docs/generated-outputs.md`, que dice lo mismo y un test ata a este
+        // comentario):
+        //
+        //   `generated_outputs` es un **registro de auditoría/histórico de
+        //   generación**: este write-path deja constancia de qué se generó, para qué
+        //   cliente y con qué OFV asociada. **No tiene consumidor de lectura en el
+        //   producto y no se planea uno.**
+        //
+        // Los artefactos con superficie viva tienen su propio home canónico (`briefs`,
+        // `buyer_personas`, `offers`, `gbp_profiles`), y `gbp_description` está
+        // EXCLUIDO de este registro desde F-089 (`shouldPersistGeneratedOutput`,
+        // `src/lib/gbp-slice/content-status.ts`) porque su home es `gbp_profiles`.
+        // El único read que existía se eliminó en F-089 R-07. No es una omisión
+        // pendiente: es la naturaleza de la tabla. No construir un lector (R-32).
         const { data, error } = await supabase
           .from('generated_outputs')
           .insert({

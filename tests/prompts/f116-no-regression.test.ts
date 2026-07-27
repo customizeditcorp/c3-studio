@@ -259,7 +259,30 @@ test('T-11(c) ⭐ R-29/DT-9 los 11 meta.json son IDÉNTICOS a HEAD (F-116 no bum
   }
 });
 
-test('T-11(c) R-28 los 8 prompts de contenido son BYTE-IDÉNTICOS a HEAD (F-116 es núcleo, Fase C es downstream)', () => {
+/**
+ * **F-117 (R-06/R-07) — GUARD PREEXISTENTE CRUZADO POR DISEÑO. Reescrito preservando la
+ * intención, NO borrado ni vaciado.** *(Tercer cruce del arco; mismo patrón que los dos
+ * que F-117 R-24 autoriza en `f112-no-regression` y `f113-source-guards`, y que a su vez
+ * copia el precedente literal de F-113 R-21.)*
+ *
+ * **La intención de este guard se cumple, y sigue cumpliéndose.** F-116 declaró *"soy
+ * núcleo; los prompts de contenido son downstream y van en la **Fase C**"*. F-117 **es**
+ * la Fase C: es la feature que este guard estaba esperando, no una violación de él.
+ *
+ * **Lo que F-117 cambia es UNA LÍNEA de UN prompt.** `prompts/gbp_description/
+ * system_prompt.md:5` declaraba `INPUTS: brief_negocio + buyer_persona + ofv`. F-117
+ * R-01 saca `gbp_description` de `needsPersona` por **CL-092** (el GBP se queda con
+ * brief + OFV), así que dejar esa línea intacta recrearía **exactamente** el defecto que
+ * F-114 eliminó (R-08/R-11): un `INPUTS:` que promete una fuente que el route NO
+ * inyecta.
+ *
+ * **El guard queda MÁS fuerte, no más débil:** los otros 7 prompts de contenido siguen
+ * exigidos byte-idénticos a `HEAD`, y para `gbp_description` se exige que el diff sea
+ * **exactamente** la línea `INPUTS:` — todo el resto del archivo byte-idéntico. Vaciarlo
+ * habría dejado los 8 sin protección; esto no deja pasar ni un carácter de más.
+ */
+test('T-11(c) R-28 (⤫ F-117 R-06/R-07) los prompts de contenido siguen BYTE-IDÉNTICOS a HEAD, salvo la línea `INPUTS:` de `gbp_description`', () => {
+  const esInputs = (l: string): boolean => /^\s*INPUTS\s*:/.test(l);
   for (const step of CONTENT_STEPS) {
     const working = read(`prompts/${step}/system_prompt.md`);
     const head = execFileSync(
@@ -267,10 +290,35 @@ test('T-11(c) R-28 los 8 prompts de contenido son BYTE-IDÉNTICOS a HEAD (F-116 
       ['show', `HEAD:prompts/${step}/system_prompt.md`],
       { cwd: ROOT, encoding: 'utf8' }
     );
+    if (step === 'gbp_description') {
+      // Único cambio autorizado del arco: la línea `INPUTS:` (F-117 R-06/R-07, CL-092).
+      const strip = (t: string): string =>
+        t
+          .split('\n')
+          .filter((l) => !esInputs(l))
+          .join('\n');
+      assert.equal(
+        strip(working),
+        strip(head),
+        'gbp_description: F-117 sólo puede tocar la línea `INPUTS:` de este prompt (R-07)'
+      );
+      assert.equal(
+        working.split('\n').length,
+        head.split('\n').length,
+        'gbp_description: F-117 no agrega ni borra líneas'
+      );
+      assert.doesNotMatch(
+        working.split('\n').find(esInputs) ?? '',
+        /buyer[_\s]?persona/i,
+        'CL-092: el `INPUTS:` de `gbp_description` ya no puede prometer la persona'
+      );
+      continue;
+    }
     assert.equal(
       working,
       head,
-      `${step}: F-116 modificó un prompt de CONTENIDO (R-28 / CL-102: es downstream, va en la Fase C)`
+      `${step}: prompt de CONTENIDO modificado fuera de lo autorizado (R-28 / CL-102). ` +
+        'F-117 sólo toca `gbp_description`, y sólo su línea `INPUTS:`.'
     );
   }
 });

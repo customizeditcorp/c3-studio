@@ -220,7 +220,21 @@ test('T-10 ⭐ R-17 los 2 fallbacks (`created_at desc`, cualquier status) siguen
 /*  T-10 — R-20: superficie NO tocada                                  */
 /* ================================================================== */
 
-test('T-10 R-20 `needsBrief`/`needsPersona` conservan sus steps, sin altas ni bajas', () => {
+/**
+ * **F-117 (R-24) — GUARD PREEXISTENTE CRUZADO POR DISEÑO. Reescrito preservando la
+ * intención, NO borrado ni vaciado.** *(Mismo patrón e idéntica autorización que el
+ * cruce de F-113 R-21 sobre los marcadores de F-112.)*
+ *
+ * `needsBrief` queda **intacto** (10 steps). Lo que cambia es `needsPersona`: F-117 le
+ * da de baja `gbp_description` por **CL-092** — el GBP se queda con **brief + OFV**, la
+ * buyer persona **no entra**. `gbp_description` produce la descripción del **mismo
+ * perfil público de Google** que `/api/generate-gbp` (que ya cumplía), de modo que este
+ * segundo camino violaba la decisión del operador **en silencio**.
+ *
+ * La intención se preserva y se refuerza: conteo exacto, `buyer_persona` fuera, y ahora
+ * `gbp_description` **explícitamente ausente**.
+ */
+test('T-10 R-20 (⤫ F-117 R-24) `needsBrief` intacto (10) y `needsPersona` en 8 con `gbp_description` AUSENTE por CL-092', () => {
   const bloque = (nombre: string): string => {
     const i = ROUTE.search(new RegExp(`const\\s+${nombre}\\s*=`));
     assert.ok(i >= 0, `no se encontró ${nombre}`);
@@ -243,11 +257,21 @@ test('T-10 R-20 `needsBrief`/`needsPersona` conservan sus steps, sin altas ni ba
   assert.equal((brief.match(/'/g) ?? []).length / 2, 10);
 
   const persona = bloque('needsPersona');
-  for (const s of [...contenido, 'ofv']) {
+  // `gbp_description` sale del set de persona (F-117 R-01); el resto se conserva.
+  for (const s of [
+    ...contenido.filter((s) => s !== 'gbp_description'),
+    'ofv'
+  ]) {
     assert.ok(persona.includes(`'${s}'`), `needsPersona perdió ${s}`);
   }
   assert.ok(!persona.includes("'buyer_persona'"));
-  assert.equal((persona.match(/'/g) ?? []).length / 2, 9);
+  assert.ok(
+    !persona.includes("'gbp_description'"),
+    'CL-092 (decisión del operador): el GBP se queda con brief + OFV; la buyer ' +
+      'persona NO entra. Reintroducir `gbp_description` acá vuelve a violar la ' +
+      'decisión en silencio.'
+  );
+  assert.equal((persona.match(/'/g) ?? []).length / 2, 8);
 });
 
 test('T-10 R-20 encabezados, `raw_text || JSON.stringify(content)` y bloques F-110/F-111/F-112 intactos', () => {
