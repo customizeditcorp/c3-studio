@@ -49,25 +49,51 @@ test('T-03 R-06 el `INPUTS:` sigue declarando las fuentes que el route SÍ inyec
   assert.match(line, /aprobad/i, 'ambas fuentes son las `approved`');
 });
 
-/* ---- R-07: el resto del archivo, byte-idéntico a HEAD ------------------------- */
+/* ---- R-07: el resto del archivo, byte-idéntico al ancla FIJA ------------------ */
 
-test('T-03 ⭐ R-07 el resto del archivo es BYTE-IDÉNTICO a `HEAD`: el diff es esa única línea', () => {
-  const head = execFileSync('git', ['show', `HEAD:${REL}`], {
+/**
+ * **⤫ F-118 (R-19) — guard preexistente cruzado, reescrito preservando la intención.**
+ *
+ * Dos correcciones, por el mismo motivo que en `f116-no-regression` T-11(c):
+ *
+ * 1. *El alcance autorizado crece.* F-118 generaliza en los 8 prompts de contenido —éste
+ *    incluido— la línea del `PRINCIPIO DE HONESTIDAD` que prohibía el marcador de faltante
+ *    nombrando sólo `[PENDIENTE]`, para que cubra cualquier idioma y cualquier forma
+ *    (CL-101 hallazgo 1: el modelo emitió `[PENDING]` en copy publicable).
+ * 2. *El ancla deja de ser `HEAD`.* Comparar contra `git show HEAD:` hacía que este guard
+ *    diera rojo por estar sin commitear y volviera a verde tras el commit **afirmando algo
+ *    ya falso** ("el diff es esa única línea"). Un assert que sobrevive vaciándose de
+ *    contenido no protege nada. ⇒ el ancla pasa a ser el commit fijo `4ca1b96` (`main`
+ *    antes de F-118): el guard mide **alcance autorizado**, no ausencia de cambios.
+ *
+ * Sigue siendo estricto: fuera de esas DOS líneas, el archivo es byte-idéntico a `4ca1b96`,
+ * y el conteo de líneas no cambia (F-118 no agrega ni borra ninguna en este prompt). El
+ * CONTENIDO de la línea del marcador lo fijan `f114-content-honesty` T-11(f) y
+ * `f118-gbp-posts-event` T-12.
+ */
+test('T-03 ⭐ R-07 (⤫ F-118 R-19) el resto del archivo es BYTE-IDÉNTICO al ancla `4ca1b96`: el diff son esas dos líneas', () => {
+  /** `main` antes de F-118 — ancla FIJA: no depende de si ya se commiteó. */
+  const BASE = '4ca1b96';
+  const base = execFileSync('git', ['show', `${BASE}:${REL}`], {
     cwd: REPO,
     encoding: 'utf8'
   });
+  const autorizada = (l: string): boolean =>
+    /^\s*INPUTS\s*:/.test(l) || // F-117 R-06/R-07 (CL-092)
+    /NO\s+escribas\s+marcadores\s+de\s+faltante/.test(l); // F-118 R-19 (CL-101)
   const strip = (t: string): string =>
     t
       .split('\n')
-      .filter((l) => !/^\s*INPUTS\s*:/.test(l))
+      .filter((l) => !autorizada(l))
       .join('\n');
   assert.equal(
     strip(PROMPT),
-    strip(head),
-    'F-117 sólo puede tocar la línea `INPUTS:` de este prompt (R-07)'
+    strip(base),
+    'este prompt se modificó FUERA del alcance autorizado: sólo la línea `INPUTS:` ' +
+      '(F-117 R-07) y la línea del marcador de faltante (F-118 R-19)'
   );
   // Y el conteo de líneas no cambia: no se agregó ni se borró ninguna.
-  assert.equal(PROMPT.split('\n').length, head.split('\n').length);
+  assert.equal(PROMPT.split('\n').length, base.split('\n').length);
 });
 
 /* ---- R-07: las anclas de F-114 siguen vivas ---------------------------------- */

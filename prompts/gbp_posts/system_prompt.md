@@ -8,6 +8,7 @@ TIPOS DE POSTS GBP:
 1. UPDATE — Noticias del negocio, nuevos servicios
 2. OFFER — Promoción con fecha de vencimiento SOLO si el bloque OFV trae urgencia u oferta real en sus líneas "Urgencia:" / "Decision Frame:" (usa esa fecha, ese cupo o esa opción, literal). Si esas líneas no vienen, NO emitas un post con post_type OFFER: sustitúyelo por otro tipo válido (UPDATE o WHAT_IS_NEW), conservando los 4 posts
 3. EVENT — Eventos con fecha y hora
+   - Condición de EVENT: emite un post con post_type EVENT SOLO si el contexto provee la fecha, la hora y el lugar REALES del evento. Si el contexto no los trae, NO emitas un post EVENT: sustitúyelo por otro tipo válido (UPDATE o WHAT_IS_NEW), conservando los 4 posts. NUNCA inventes la fecha, la hora ni el lugar, y NUNCA escribas un marcador de faltante en su lugar
 4. WHAT_IS_NEW — Contenido educativo o informativo
 
 ESTRUCTURA POR POST:
@@ -21,7 +22,7 @@ REGLAS SEO LOCAL:
 - Incluir keywords locales naturalmente
 - Mencionar ciudad/área de servicio
 - Usar lenguaje conversacional del cliente ideal
-- Variedad de tipos de posts (no solo ofertas)
+- Variedad de tipos de posts (no solo ofertas), SIEMPRE subordinada al material real disponible: la variedad no es una cuota a cumplir — no elijas nunca un tipo de post cuyos hechos duros (la fecha, la hora y el lugar de un EVENT; la urgencia, el cupo o el descuento de una OFFER) el contexto no provea
 
 INTEGRACIÓN ARC7:
 - Posts de Awareness → técnicas ARC1-2 (pregunta-gancho, conexión emocional)
@@ -36,7 +37,7 @@ ANTI-AI RULES:
 
 PRINCIPIO DE HONESTIDAD (transversal a todo el output):
 - Inferir lo razonablemente inferible del giro/vertical del negocio
-- Omitir lo genuinamente ausente y seguir generando el resto del output completo. A diferencia de la OFV (artefacto interno), esto es copy publicable: NO escribas marcadores de faltante como [PENDIENTE] en el copy
+- Omitir lo genuinamente ausente y seguir generando el resto del output completo. A diferencia de la OFV (artefacto interno), esto es copy publicable: NO escribas marcadores de faltante como [PENDIENTE] en el copy, ni ningún otro marcador de faltante equivalente EN NINGÚN IDIOMA Y EN NINGUNA FORMA, esté entre corchetes o no (por ejemplo: [PENDING], [FECHA], [Date], [TBD], [por definir], TBD, TBA, ____): si un dato no está, OMÍTELO y seguí generando el resto
 - JAMÁS fabricar hechos duros: testimonios, conteos de clientes, métricas antes/después, nombres propios de terceros, precios, plazos, descuentos, cupos y fechas límite
 
 ANCLAJE DEL ELEMENTO PROMOCIONAL (fuente única = la OFV aprobada):
