@@ -10,6 +10,10 @@ import { toast } from 'sonner';
 import { resolveApprovedGbpDescription } from '@/lib/gbp-slice/content-status';
 // F-096 — Knowledge Panel compartido data-driven (fuente visual única preview↔entregable).
 import { GbpKnowledgePanel } from '@/components/gbp/gbp-knowledge-panel';
+// F-122 R-14/R-18 — este sitio leía `clients.industry` CRUDO y lo componía dentro
+// de un string. La declaración única de F-121 es la fuente; la ausencia se expresa como
+// ausencia, nunca como token ni como hueco (R-15).
+import { toIndustryLabel } from '@/lib/clients/industry-label';
 import { buildSalesPanelData } from '@/lib/gbp-slice/knowledge-panel';
 
 type Props = {
@@ -216,7 +220,7 @@ export default function PreviewPublicView({
                     <CardTitle className='text-xl'>{businessName}</CardTitle>
                     <p className='mt-1 text-sm text-gray-500 capitalize'>
                       {gbpProfile?.primary_category ||
-                        client?.industry?.replace(/_/g, ' ') ||
+                        toIndustryLabel(client?.industry) ||
                         'Contratista'}
                     </p>
                   </div>
@@ -318,8 +322,10 @@ export default function PreviewPublicView({
                 <div className='relative z-10'>
                   <h1 className='mb-2 text-3xl font-bold'>{businessName}</h1>
                   <p className='text-gray-300 capitalize'>
-                    {client?.industry?.replace(/_/g, ' ')} · Servicio
-                    profesional y de confianza
+                    {toIndustryLabel(client?.industry)
+                      ? `${toIndustryLabel(client?.industry)} · `
+                      : ''}
+                    Servicio profesional y de confianza
                   </p>
                   <Button className='mt-4 bg-[#FF5733] hover:bg-[#FF5733]/90'>
                     Llamar ahora
@@ -426,7 +432,7 @@ export default function PreviewPublicView({
               <div className='absolute inset-0 bg-gradient-to-br from-[#FF5733] to-transparent opacity-10' />
               <div className='relative'>
                 <p className='mb-2 text-xs font-semibold tracking-widest text-[#FF5733] uppercase'>
-                  {client.industry?.replace(/_/g, ' ').toUpperCase() ||
+                  {toIndustryLabel(client.industry)?.toUpperCase() ||
                     'HOME SERVICES'}
                 </p>
                 <h3 className='mb-2 text-xl font-bold'>{businessName}</h3>

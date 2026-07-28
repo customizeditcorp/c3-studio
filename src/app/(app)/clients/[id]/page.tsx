@@ -67,6 +67,10 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
+// F-122 R-14/R-18 — este sitio leía `clients.industry` CRUDO y lo componía dentro
+// de un string. La declaración única de F-121 es la fuente; la ausencia se expresa como
+// ausencia, nunca como token ni como hueco (R-15).
+import { toIndustryLabel } from '@/lib/clients/industry-label';
 import { Icons } from '@/components/icons';
 import { ClientAssetHub } from './client-asset-hub';
 import { OfvPanel } from './ofv-panel';
@@ -615,7 +619,7 @@ export default function ClientDetailPage() {
   return (
     <PageContainer
       pageTitle={client.business_name}
-      pageDescription={`${client.industry?.replace(/_/g, ' ')} · ${statusLabel(client.status)}`}
+      pageDescription={`${toIndustryLabel(client.industry) ? `${toIndustryLabel(client.industry)} · ` : ''}${statusLabel(client.status)}`}
       pageHeaderAction={
         <div className='flex gap-2'>
           <Button variant='outline' onClick={() => setEditOpen(true)}>
@@ -811,7 +815,8 @@ export default function ClientDetailPage() {
                       Industria
                     </p>
                     <p className='text-sm capitalize'>
-                      {client.industry?.replace(/_/g, ' ')}
+                      {toIndustryLabel(client.industry) ??
+                        'Sin industria declarada'}
                     </p>
                   </div>
                   <div>

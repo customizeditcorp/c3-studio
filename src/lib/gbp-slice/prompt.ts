@@ -9,6 +9,8 @@
 import type { GbpContext } from './context.ts';
 import { buildLanguageDirective } from '../content-language.ts';
 import { BRIEF_FACT_KEYS, BRIEF_FACT_LABELS } from './brief.ts';
+// F-122 R-17 — la industria se resuelve por la declaración única de F-121 (DT-05).
+import { toIndustryLabel } from '../clients/industry-label.ts';
 
 /** Final required GBP fields validated before write (R-10/R-11). `business_name` is
  * NOT here: it is client-sourced (R-03), not decided by the model output. */
@@ -79,7 +81,14 @@ export function buildGbpUserMessage(
   const lines: string[] = [];
   lines.push('## DATOS DEL CLIENTE');
   lines.push('Negocio: ' + client.business_name);
-  lines.push('Industria: ' + (client.industry ?? 'N/A'));
+  // ⤫ F-122 R-17 — QUINTO consumidor del código crudo, no registrado en CL-112: el
+  // prompt del GBP recibía `Industria: other`. Ahora pasa por la declaración única, y la
+  // ausencia se NOMBRA con la misma expresión que usa `route.ts` — no con un `N/A` mudo
+  // que el modelo puede leer como un dato.
+  lines.push(
+    'Industria: ' +
+      (toIndustryLabel(client.industry) ?? 'Sin industria declarada')
+  );
   lines.push('Teléfono: ' + (client.phone ?? 'N/A'));
   lines.push(
     'Dirección: ' +

@@ -2,6 +2,10 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+// F-122 R-14/R-18 — este sitio leía `clients.industry` CRUDO y lo componía dentro
+// de un string. La declaración única de F-121 es la fuente; la ausencia se expresa como
+// ausencia, nunca como token ni como hueco (R-15).
+import { toIndustryLabelEn } from '@/lib/clients/industry-label';
 const AI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o';
 export async function POST(request: NextRequest) {
   try {
@@ -90,12 +94,31 @@ export async function POST(request: NextRequest) {
           content: [
             { type: 'image_url', image_url: { url: signedUrlData.signedUrl } },
             {
+              // ⭐⭐ F-122 R-51/R-52 (ENMIENDA 2026-07-28) — **IDIOMA DE SALIDA DE ESTA
+              // SUPERFICIE: INGLÉS.** No es una opinión ni una convención: está DECLARADO
+              // en el literal de acá abajo (`English only`), que es el texto que rodea a
+              // la industria en el artefacto que esta ruta produce.
+              //
+              // ⭐ **La regla, para el próximo consumidor (R-52):** el rendering acompaña
+              // al idioma del TEXTO QUE LO RODEA en el artefacto producido — no al idioma
+              // del código, ni al del repo, ni al de la UI que lo dispara. Por eso acá va
+              // `toIndustryLabelEn` y en `generate-content/route.ts` (que dice
+              // `Industria:`) va `toIndustryLabel`. **El guard de R-53 lo exige:** un
+              // consumidor nuevo que mezcle idioma se pone rojo solo.
+              //
+              // Historia, para que nadie lo "arregle" al revés: antes de F-122 esta línea
+              // inyectaba el código crudo (`plumbing`) y F-122 la enrutó por la
+              // declaración única… en español (`Plomería`) ⇒ regresión de idioma dentro
+              // de un prompt inglés. Volver al código crudo está PROHIBIDO (R-18).
               type: 'text',
               text:
                 'Generate SEO-optimized alt text for this image. Context: Business: ' +
                 (client?.business_name || 'Unknown') +
                 ', Industry: ' +
-                (client?.industry || 'home services') +
+                // El fallback `'home services'` se PRESERVA: ya estaba en inglés y era
+                // correcto. La enmienda corrige el rendering del valor PRESENTE, no la
+                // expresión de la ausencia (R-51).
+                (toIndustryLabelEn(client?.industry) ?? 'home services') +
                 ', GBP Category: ' +
                 ((photo as any).gbp_category || 'work') +
                 ', Location: Central Coast, California. Rules: Max 125 characters. Include business type and location naturally. Describe what is VISIBLE. English only. No quotes. No prefix. Respond with ONLY the alt text.'
@@ -109,17 +132,15 @@ export async function POST(request: NextRequest) {
       .from('client_photos')
       .update({ alt_text_auto: altText })
       .eq('id', photo_id);
-    await supabase
-      .from('activity_log')
-      .insert({
-        tenant_id: client.tenant_id,
-        client_id,
-        user_id: user.id,
-        action: 'alt_text_generated',
-        entity_type: 'photo',
-        entity_id: photo_id,
-        metadata: { alt_text: altText }
-      });
+    await supabase.from('activity_log').insert({
+      tenant_id: client.tenant_id,
+      client_id,
+      user_id: user.id,
+      action: 'alt_text_generated',
+      entity_type: 'photo',
+      entity_id: photo_id,
+      metadata: { alt_text: altText }
+    });
     return NextResponse.json({ success: true, alt_text: altText, photo_id });
   } catch (error) {
     console.error('generate-alt-text error:', error);

@@ -22,6 +22,8 @@
 // que a su vez importa `formatGbpHoursLine` como valor). Extensión `.ts` explícita:
 // precedente `deliverable-public.ts` → `content-status.ts`.
 import type { PublicDeliverableView } from '../clients/deliverable-public.ts';
+// F-122 R-16 — la industria se resuelve por la declaración única de F-121 (DT-05).
+import { toIndustryLabel } from '../clients/industry-label.ts';
 
 /* ------------------------------------------------------------------------- *
  * Contrato de datos del panel (un solo source-of-truth de la forma)
@@ -67,11 +69,16 @@ function nonEmpty(value: string | null | undefined): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
 
-/** Industria cruda (`home_services`) → etiqueta legible (`home services`) o `null`. */
-function formatIndustry(value: string | null | undefined): string | null {
-  const s = nonEmpty(value);
-  return s ? s.replace(/_/g, ' ') : null;
-}
+// ⤫ F-122 R-16 (deuda #2 de CL-112) — `formatIndustry` SE ELIMINA. Era el tercer
+// criterio propio sobre `clients.industry` (`_` → espacio) y, por serlo, publicaba la
+// categoría **"other"** en el panel del entregable: `other` no es un rubro, es la
+// AUSENCIA de rubro declarado (F-121 R-15). El único criterio es ahora
+// `toIndustryLabel`, y se llama directo — un wrapper local volvería a ser un criterio
+// que mañana puede derivar en silencio, que es la clase de fallo que R-18 vigila.
+//
+// **Frontera (CL-102), declarada:** este archivo es DOWNSTREAM. El cambio es de FORMA,
+// no de conjunto de datos: no amplía ni reduce qué cruza la frontera. Mismo argumento
+// `CL-102-safe` que el ledger validó para F-121 R-18.
 
 /** Orden canónico de la semana + etiquetas ES (para agrupar tramos contiguos). */
 const DAY_ORDER = [
@@ -214,7 +221,7 @@ export function buildSalesPanelData(
   const c = input.client;
   return {
     businessName: nonEmpty(g?.business_name) ?? nonEmpty(c?.business_name),
-    category: nonEmpty(g?.primary_category) ?? formatIndustry(c?.industry),
+    category: nonEmpty(g?.primary_category) ?? toIndustryLabel(c?.industry),
     location: nonEmpty(g?.address), // DT-03: ubicación honesta = gbp_profiles.address
     phone: nonEmpty(g?.phone) ?? nonEmpty(c?.phone),
     hours: formatGbpHoursLine(g?.hours),

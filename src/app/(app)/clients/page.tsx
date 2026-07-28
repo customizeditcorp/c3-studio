@@ -34,6 +34,10 @@ import { toast } from 'sonner';
 import { Icons } from '@/components/icons';
 // F-092 (R-10/R-11/R-13) — labels canónicos de los 9 estados (incl. delivered/maintenance/
 // paused). Reemplaza el mapa local incompleto que ocultaba esos estados del filtro/badge.
+// F-122 R-14/R-18 — este sitio leía `clients.industry` CRUDO y lo componía dentro
+// de un string. La declaración única de F-121 es la fuente; la ausencia se expresa como
+// ausencia, nunca como token ni como hueco (R-15).
+import { toIndustryLabel } from '@/lib/clients/industry-label';
 import { STATUS_LABELS, statusLabel } from '@/lib/clients/client-status';
 
 const STATUS_VARIANTS: Record<
@@ -226,7 +230,7 @@ export default function ClientsPage() {
                       {client.business_name}
                     </TableCell>
                     <TableCell className='capitalize'>
-                      {client.industry?.replace(/_/g, ' ')}
+                      {toIndustryLabel(client.industry) ?? '—'}
                     </TableCell>
                     <TableCell>{client.contact_first_name || '—'}</TableCell>
                     <TableCell>{client.phone || '—'}</TableCell>
