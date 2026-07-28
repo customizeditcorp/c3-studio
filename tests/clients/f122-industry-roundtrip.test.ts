@@ -9,9 +9,17 @@
  * forma ESPEJO del defecto que vino a cerrar**: con `clients.industry = 'Sign Shop'` —un
  * rubro libre **guardado correctamente** por el Slice A— el `<select>` de Industria del
  * diálogo «Editar Cliente» **no tiene ninguna `<option>` que matchee** ⇒ **renderiza
- * VACÍO** ⇒ al enviar, `resolveIndustryForPersist('', '')` devuelve `null` ⇒ el submit se
- * corta con «Elegí una industria…» ⇒ **NINGÚN cambio del cliente se puede guardar**, y el
- * formulario ni siquiera muestra qué rubro tiene.
+ * VACÍO**: el operador **no puede ver ni editar el rubro que el cliente tiene guardado**, y
+ * si toca el control lo pierde de vista.
+ *
+ * ⚠️ **PREMISA CORREGIDA POR LA SEGUNDA §6.1 EN VIVO (2026-07-28).** El diagnóstico
+ * original agregaba *«…⇒ el submit se bloquea ⇒ NINGÚN cambio del cliente se puede
+ * guardar»*. **Eso es falso.** En vivo, guardar sin tocar el desplegable **funciona**
+ * («Cliente actualizado»): el `<select>` no muestra nada, pero `formData.industry` **sigue
+ * teniendo `'Sign Shop'`** —el estado de React no se vacía porque falte una `<option>`— así
+ * que al submit llega el valor, no `''`. **El defecto es de REPRESENTACIÓN, no de
+ * persistencia**, y este archivo lo mide como tal (ver la corrección de premisa, asentada
+ * y ejercida en el anti-no-op de abajo).
  *
  * ─────────────────────────────────────────────────────────────────────────────────
  * ⭐⭐⭐ POR QUÉ NINGÚN TEST LO ATRAPÓ — Y QUÉ CLASE DE COBERTURA ES ÉSTA
@@ -122,8 +130,9 @@ async function opcionFueraDeCatalogo(
     'function',
     `R-56: no existe ningún seam que represente un valor de \`clients.industry\` FUERA ` +
       `de \`INDUSTRIES\`. Sin él, el \`<select>\` no tiene ninguna \`<option>\` que ` +
-      `matchee «${RUBRO_LIBRE.value}» (${RUBRO_LIBRE.id}) ⇒ renderiza VACÍO ⇒ el submit ` +
-      'se corta ⇒ el cliente entero queda NO EDITABLE. Es el defecto de `5db980a`.'
+      `matchee «${RUBRO_LIBRE.value}» (${RUBRO_LIBRE.id}) ⇒ renderiza VACÍO: el operador ` +
+      'no puede VER ni EDITAR el rubro que el cliente ya tiene guardado. Es el defecto ' +
+      'de `5db980a`, y es de REPRESENTACIÓN (la persistencia nunca estuvo rota).'
   );
   return (fn as (r: string | null | undefined) => OpcionFueraDeCatalogo)(raw);
 }
@@ -179,8 +188,10 @@ test('T-33 ⭐⭐⭐ R-57 ROUND-TRIP: guardar un rubro fuera de tabla → reabri
   assert.notEqual(
     reguardado,
     null,
-    'R-57: el submit se bloquea al reabrir un cliente con rubro libre ⇒ NINGÚN cambio ' +
-      'del cliente se puede guardar (el defecto verificado en producción)'
+    'R-57: reabrir un cliente con rubro libre y guardar sin tocar la industria tiene que ' +
+      'resolver. (En el ancla esto YA funcionaba: la persistencia nunca estuvo rota — lo ' +
+      'que faltaba era poder VER el valor. Se mide igual, para que un cambio futuro en el ' +
+      'seam no rompa la vuelta en silencio.)'
   );
   assert.equal(
     reguardado,
@@ -405,21 +416,44 @@ test('T-33 ⭐⭐⭐ R-57 contra `5db980a` el defecto se REPRODUCE: el desplegab
     `ninguna \`<option>\` matchea «${RUBRO_LIBRE.value}» (${RUBRO_LIBRE.id})`
   );
 
-  // (c) Y la CONSECUENCIA, ejecutada con el módulo del ancla: el control renderiza vacío,
-  //     así que lo que llega al submit es `''` ⇒ la resolución devuelve `null` ⇒ el submit
-  //     se corta ⇒ **ningún cambio del cliente se puede guardar**. Éste es el defecto
-  //     entero, reproducido sin browser.
+  // ─────────────────────────────────────────────────────────────────────────────────
+  // (c) ⚠️ **CORRECCIÓN DE PREMISA — la §6.1 en vivo (2026-07-28) refutó una parte del
+  //     diagnóstico, y se asienta acá en vez de taparse.**
+  //
+  //     El diagnóstico decía: *«el control renderiza vacío ⇒ lo que llega al submit es
+  //     `''` ⇒ `resolveIndustryForPersist('','')` es falsy ⇒ el submit se BLOQUEA ⇒ el
+  //     cliente entero queda NO EDITABLE»*. **Es falso, y el mundo lo dijo:** en vivo, con
+  //     `industry = 'Sign Shop'`, guardar sin tocar el desplegable **funciona** («Cliente
+  //     actualizado», sin bloqueo).
+  //
+  //     La razón está en el código y se ejerce abajo: el `<select>` no encuentra opción que
+  //     matchear y **no muestra nada**, pero `formData.industry` **sigue teniendo el valor**
+  //     —el estado de React no se vacía porque falte una `<option>`—, así que lo que llega
+  //     al submit es `'Sign Shop'`, no `''`.
+  //
+  //     ⇒ **El defecto NUNCA fue de persistencia: es de REPRESENTACIÓN.** El operador no
+  //     puede ver ni editar el rubro que tiene guardado, y si toca el control lo pierde de
+  //     vista. Medir el bloqueo habría sido medir algo que no ocurre —la misma trampa de
+  //     [[feedback_guards_measure_index_not_world]], esta vez del lado del diagnóstico.
+  // ─────────────────────────────────────────────────────────────────────────────────
   assert.equal(
-    antes.resolveIndustryForPersist('', ''),
-    null,
-    'si contra el ancla el submit resolviera, el defecto de producción no sería éste y ' +
-      'el diagnóstico estaría mal'
+    antes.resolveIndustryForPersist(RUBRO_LIBRE.value, ''),
+    RUBRO_LIBRE.value,
+    'CORRECCIÓN DE PREMISA: contra el ancla la PERSISTENCIA ya resolvía bien. Si acá se ' +
+      'afirmara que el submit se bloqueaba, el test estaría midiendo un mundo que la ' +
+      'verificación en vivo mostró que no existe.'
   );
-  // La prueba de que el arreglo de hoy es lo que corta ese camino: con el MISMO valor
-  // guardado, hoy la resolución sí produce el rubro (porque el control ya no queda vacío).
+  // Lo que SÍ estaba roto en el ancla, y es lo único que este bloque arregla: no había
+  // NINGUNA opción que representara el valor ⇒ el control se mostraba vacío. Hoy sí la hay.
   assert.equal(
-    resolveIndustryForPersist(RUBRO_LIBRE.value, ''),
-    RUBRO_LIBRE.value
+    typeof antes.outOfCatalogIndustryOption,
+    'undefined',
+    'el ancla no tenía con qué representar el valor: ése es el defecto, y es de la UI'
+  );
+  assert.equal(
+    (await opcionFueraDeCatalogo(RUBRO_LIBRE.value))?.value,
+    RUBRO_LIBRE.value,
+    'hoy el desplegable tiene una opción que matchea el valor guardado'
   );
 });
 
