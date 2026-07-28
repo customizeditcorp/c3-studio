@@ -23,9 +23,14 @@ import { logActivity } from '@/lib/activity';
 import { INDUSTRIES } from '@/lib/clients/industry-label';
 // F-122 R-09/R-10/R-11/R-13 (Slice A) — «Otro» deja de ser un sumidero: exige el rubro
 // libre y lo resuelve a `industry` ANTES del insert con spread (H-6).
+// F-122 BLOQUE G R-56 — la VUELTA: un rubro fuera del vocabulario cerrado se representa
+// sin perderse. Acá el alta arranca con `industry: ''` y la opción no aparece nunca; se
+// cablea igual para que la garantía valga **por construcción** y no por el hecho
+// circunstancial de que hoy esta pantalla no cargue un cliente ya guardado.
 import {
   validateFreeIndustry,
-  resolveIndustryForPersist
+  resolveIndustryForPersist,
+  outOfCatalogIndustryOption
 } from '@/lib/clients/industry-input';
 // F-122 R-28/R-33 (Slice C) — el marcador no es un dato de captura.
 import {
@@ -581,6 +586,17 @@ export default function DiagnosticPage() {
     stripPlaceholdersFromCapture(newClientData).blocked.length > 0 ||
     isCapturePlaceholder(industryOther);
 
+  /**
+   * ⭐ **F-122 BLOQUE G / R-56** — el valor guardado FUERA de la tabla, preservado. Mismo
+   * seam y mismo patrón que la ficha (y que `CitySelect` para la ciudad, R-23): **mostrar,
+   * señalar, no perder**. Acá el alta arranca vacía, así que hoy siempre es `null`; existe
+   * para que ninguna superficie del repo pueda volver a renderizar el desplegable vacío
+   * frente a un rubro libre.
+   */
+  const industryOutOfCatalog = outOfCatalogIndustryOption(
+    newClientData.industry
+  );
+
   const canProceed = () => {
     if (step === 1) {
       if (clientMode === 'existing') return !!selectedClientId;
@@ -722,6 +738,13 @@ export default function DiagnosticPage() {
                             {i.label}
                           </SelectItem>
                         ))}
+                        {/* ⭐ R-56 — el rubro guardado fuera del vocabulario cerrado. Se
+                            AGREGA a la lista; `INDUSTRIES` no se muta (F-121 DT-05). */}
+                        {industryOutOfCatalog && (
+                          <SelectItem value={industryOutOfCatalog.value}>
+                            {industryOutOfCatalog.label}
+                          </SelectItem>
+                        )}
                       </SelectContent>
                     </Select>
                     {/* F-122 R-09/R-10 — «Otro» EXIGE el rubro real. `other` significa

@@ -50,7 +50,28 @@ const BASE = '9509f6f';
  * SHAs declarados, de uno a dos, cada uno con su rol escrito acá.
  */
 const POST_OFFLINE = '86fae28';
-const ANCLAS_DECLARADAS: readonly string[] = [BASE, POST_OFFLINE];
+/**
+ * ⭐⭐ **[BLOQUE G 2026-07-28 · R-57 — TERCERA ancla declarada, con su ROL.]**
+ *
+ * `5db980a` es el commit donde vive el **defecto espejo** que la §6.1 en vivo destapó: un
+ * `clients.industry` fuera de tabla deja el `<select>` **vacío** y el cliente **no
+ * editable**. El round-trip de R-57 **debe encontrarse rojo ahí**.
+ *
+ * ⛔ **Anclarlo a `9509f6f` o a `86fae28` no probaría nada:** en `9509f6f` el vocabulario
+ * todavía era cerrado —no existía el rubro libre que hay que releer— y en `86fae28` el
+ * tramo de captura recién nacía. Sería **verde por ausencia de sujeto**, el no-op que
+ * CL-109 documentó cuatro veces.
+ *
+ * ⚠️ **La INTENCIÓN del assert de abajo sigue sin debilitarse:** ningún guard puede
+ * anclarse a `HEAD` ni a un SHA **no declarado**. El conjunto pasa de dos a tres SHAs,
+ * cada uno con su rol escrito acá, y cada uno **en uso** (se exige abajo).
+ */
+const DEFECTO_ROUNDTRIP = '5db980a';
+const ANCLAS_DECLARADAS: readonly string[] = [
+  BASE,
+  POST_OFFLINE,
+  DEFECTO_ROUNDTRIP
+];
 
 const git = (...args: string[]): string =>
   execFileSync('git', args, {
@@ -149,6 +170,17 @@ test('T-15/T-30 ⭐⭐ R-39/R-55 todo `git show`/`git grep` de F-122 usa una de 
     'ningún guard se ancla a `86fae28`: el conjunto de dos anclas no puede ser una ' +
       'licencia sin uso. El anti-no-op de R-53 EXIGE ese commit — contra `9509f6f` el ' +
       'guard de idioma estaría verde por ausencia de sujeto.'
+  );
+  // ⭐ [BLOQUE G · R-57] Y lo mismo para la TERCERA: declarar un ancla que nadie usa sería
+  // ampliar el conjunto permitido a cambio de nada. El round-trip EXIGE `5db980a`.
+  const conDefecto = ARCHIVOS.filter((rel) =>
+    codigo(rel).includes(DEFECTO_ROUNDTRIP)
+  );
+  assert.ok(
+    conDefecto.length >= 1,
+    'ningún guard se ancla a `5db980a`: el ancla del defecto espejo quedó declarada sin ' +
+      'uso, es decir, el conjunto se amplió sin que nada lo necesite. R-57 exige que el ' +
+      'round-trip se mida contra el commit donde el defecto vive.'
   );
 });
 
