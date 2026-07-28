@@ -35,7 +35,11 @@ import {
 // F-122 R-21/R-22/R-23 (Slice B) — la ciudad se elige del catálogo, en las DOS
 // superficies: el `<input>` libre del alta era la puerta que aceptaba cualquier string.
 import { CitySelect } from '@/components/clients/CitySelect';
-import { fetchLocations, type LocationRef } from '@/lib/clients/locations';
+import {
+  canonicalizeCity,
+  fetchLocations,
+  type LocationRef
+} from '@/lib/clients/locations';
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
@@ -351,11 +355,17 @@ export default function DiagnosticPage() {
             'Elegí una industria — con «Otro», escribí el rubro del negocio.'
           );
         }
+        // ⭐ F-122 R-47 (ENMIENDA 2026-07-28) — la ciudad ESCRITA que coincide con el
+        // catálogo se persiste en su FORMA CANÓNICA (`santa maria` ⇒ `Santa Maria`). La
+        // colisión se cierra en el seam (`canonicalizeCity`), no en el componente. Una
+        // ciudad genuinamente ausente se persiste VERBATIM (trim) y **no** se da de alta
+        // en `locations_reference` (R-48).
         // F-122 R-28/R-34 — el patch de captura pasa por el guard: el marcador no puede
         // llegar a `clients` por ningún write-path. Se bloquea el VALOR, no al OPERADOR.
         const { patch: newClientDataSafe, blocked } =
           stripPlaceholdersFromCapture({
             ...newClientData,
+            city: canonicalizeCity(newClientData.city, locations),
             industry: resolvedIndustry
           });
         if (blocked.length > 0) {
@@ -545,21 +555,31 @@ export default function DiagnosticPage() {
   };
 
   /**
-   * F-122 R-33 — ninguna columna de captura acepta el marcador **tecleado**. La ciudad
-   * ya no es texto libre (R-21) y `industry` se resuelve por el seam; quedan los campos
-   * de entrada libre de esta pantalla, **incluido el rubro libre que R-09 crea**: abrir
-   * una puerta mientras se cierra otra sería el defecto de F-122 sobre sí misma.
+   * ⭐⭐⭐ F-122 R-33 **ENDURECIDO POR LA ENMIENDA 2026-07-28** — ninguna columna de
+   * captura acepta el marcador **tecleado**, **`city` INCLUIDA**.
+   *
+   * ⚠️ **Por qué esto NO se enumera a mano (R-40).** La versión anterior listaba 7
+   * campos —`business_name`, `state`, `contact_first_name`, `phone`, `email`, `notes`,
+   * `industryOther`— y **`city` no estaba**, porque bajo el spec original R-21 la había
+   * cerrado a un `<select>`. R-21 enmendado la **reabre** como entrada libre ⇒ la
+   * enumeración se volvió un **agujero**. Enumerar a mano es exactamente cómo se perdió.
+   *
+   * Ahora el conjunto **se DERIVA**: `stripPlaceholdersFromCapture` recorre las claves
+   * del estado y bloquea las que son columnas de captura (`CAPTURE_COLUMNS`). Un campo
+   * de captura nuevo en `newClientData` queda cubierto **por construcción**, sin que
+   * nadie tenga que acordarse de agregarlo acá.
+   *
+   * `industryOther` va aparte porque **vive fuera del estado a propósito** (H-6): se
+   * resuelve a `industry` antes del write. Es entrada libre y R-33 lo alcanza igual —
+   * abrir una puerta mientras se cierra otra sería el defecto de F-122 sobre sí misma.
+   *
+   * **Nota de capas (no se fusionan):** el guard de write-path (R-28/R-32) bloquearía el
+   * valor igual, **pero en silencio para quien lo tecleó**. R-33 es la capa que se lo
+   * dice en el formulario. Defensa en profundidad, propósitos distintos.
    */
   const capturaConMarcador = (): boolean =>
-    [
-      newClientData.business_name,
-      newClientData.state,
-      newClientData.contact_first_name,
-      newClientData.phone,
-      newClientData.email,
-      newClientData.notes,
-      industryOther
-    ].some((v) => isCapturePlaceholder(v));
+    stripPlaceholdersFromCapture(newClientData).blocked.length > 0 ||
+    isCapturePlaceholder(industryOther);
 
   const canProceed = () => {
     if (step === 1) {

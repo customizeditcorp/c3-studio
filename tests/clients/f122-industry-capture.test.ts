@@ -208,11 +208,20 @@ test('T-11 ⭐⭐ R-33 las dos superficies rechazan el marcador tecleado, INCLUI
     assert.ok(
       chequeo.includes('industryOther'),
       `${rel}: el RUBRO LIBRE queda sin guard. Abrir una puerta mientras se cierra otra ` +
-        'sería el defecto de F-122 sobre sí misma (R-33).'
+        'sería el defecto de F-122 sobre sí misma (R-33). Vive FUERA del objeto de ' +
+        'estado (H-6) ⇒ no lo alcanza la derivación y hay que nombrarlo.'
     );
-    assert.ok(
-      chequeo.includes('notes'),
-      `${rel}: \`notes\` es entrada libre y queda sin guard`
+    // ⚠️ [ENMIENDA 2026-07-28 · ruptura mecánica declarada] Antes acá se exigía
+    // `chequeo.includes('notes')`: el assert pedía que el conjunto estuviera ENUMERADO a
+    // mano — que es **exactamente cómo se perdió `city`** cuando R-21 enmendado la
+    // devolvió a entrada libre (H-9). Ahora se exige lo contrario y más fuerte: que el
+    // conjunto se DERIVE de `CAPTURE_COLUMNS` (R-40). La cobertura campo por campo, con
+    // su anti-no-op contra `86fae28`, la mide `f122-capture-marker-coverage.test.ts`.
+    assert.match(
+      chequeo,
+      /stripPlaceholdersFromCapture\(\s*(?:newClientData|formData)\s*\)/,
+      `${rel}: el conjunto de columnas chequeadas debe DERIVARSE del estado cruzado con ` +
+        '`CAPTURE_COLUMNS`, nunca enumerarse — enumerar es cómo se pierde un campo (R-40)'
     );
   }
   // ALTA: bloquea el avance. FICHA: corta el submit.

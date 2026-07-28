@@ -18,9 +18,29 @@
  * que menciona `locations_reference`. Dos consultas equivalentes-pero-separadas serían
  * la misma deriva silenciosa con otro nombre.
  *
- * **Sin DDL, sin escrituras:** este módulo sólo **lee**. La carga de ciudades faltantes
- * es un archivo versionado aparte (`supabase/seed/locations_ca.sql`, R-24/R-25) y se
- * ejecuta en el tramo LIVE gateado.
+ * ─────────────────────────────────────────────────────────────────────────────────
+ * ⭐ ENMIENDA 2026-07-28 (DT-04 reemplazado · R-21 enmendado · R-47/R-48)
+ * ─────────────────────────────────────────────────────────────────────────────────
+ * **El catálogo es AYUDA, no cerradura.** El defecto que el Slice B cerró era *"dos
+ * superficies con dos criterios sobre el mismo dato"*, **no** *"el alta acepta cualquier
+ * string"*. El texto libre **dentro de una superficie única** no reabre ese defecto: la
+ * unificación se conserva, la cerradura se levanta.
+ *
+ * Lo que sostiene la decisión, verificado y no supuesto: `county`/`zip_codes` se usan
+ * **sólo para la etiqueta visible** (`locationOptionLabel`); **lo que se persiste es el
+ * string de la ciudad**, y ningún consumidor downstream necesita el condado ⇒ una ciudad
+ * escrita a mano es funcionalmente equivalente a una elegida.
+ *
+ * El precio declarado es el **riesgo de tipeo**, y se paga con `canonicalizeCity`
+ * (R-47): el texto normalizado que coincide con el catálogo se persiste en **la forma
+ * canónica**. **Residuo NO cubierto y aceptado a ojos abiertos:** dos ciudades
+ * genuinamente ausentes del catálogo tipeadas distinto no tienen contra qué compararse.
+ *
+ * **Sin DDL, sin escrituras (R-48):** este módulo sólo **lee**, y la captura **nunca**
+ * escribe en `locations_reference` — convertir un tipeo en un alta de catálogo
+ * reintroduciría por la puerta de atrás la escritura a producción que R-24 retiró.
+ * La carga (`supabase/seed/locations_ca.sql`) se **eliminó** con R-24; se recupera con
+ * `git show 86fae28:supabase/seed/locations_ca.sql` si alguna vez se reabre.
  *
  * Framework-free y sin dependencia del cliente concreto de Supabase: recibe el cliente
  * por parámetro (inyección), de modo que el seam es `node --test`-able con un doble.
@@ -74,6 +94,52 @@ export function isCityInCatalog(
     if (locations[i].city === v) return true;
   }
   return false;
+}
+
+/**
+ * ⭐ R-47 — **La clave de comparación de una ciudad.** Normaliza para COMPARAR, nunca
+ * para persistir: `trim`, minúsculas, sin acentos (NFD + descarte de diacríticos) y
+ * espacios colapsados.
+ *
+ * `Santa María`, `  SANTA MARIA  ` y `santa maria` producen la MISMA clave. Es la misma
+ * jugada que `industry-input.ts` hace con el rubro libre (R-12/R-13) sobre el otro dato:
+ * **texto libre con la colisión cerrada**.
+ */
+export function normalizeCityKey(raw: string | null | undefined): string {
+  if (typeof raw !== 'string') return '';
+  return raw
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * ⭐ R-47/R-48 — **El seam que decide QUÉ string se persiste en `clients.city`.**
+ *
+ * · Si el texto escrito, normalizado, coincide con una ciudad del catálogo ⇒ se devuelve
+ *   **la forma canónica del catálogo** (`santa maria` ⇒ `Santa Maria`). Sin esto, la
+ *   enmienda cambiaría un problema de cobertura por uno de **integridad**, que es peor
+ *   porque es silencioso.
+ * · Si no coincide con ninguna ⇒ se devuelve **verbatim, sólo `trim`** (R-48). No se
+ *   capitaliza, no se corrige, no se inventa una forma que nadie declaró — y **no se da
+ *   de alta en `locations_reference`**: el catálogo es curado, la captura es del cliente.
+ *
+ * La colisión se cierra **en el seam, no en el componente**: el componente presenta, este
+ * módulo decide. Puro, sin I/O, `node --test`-able.
+ */
+export function canonicalizeCity(
+  raw: string | null | undefined,
+  locations: readonly LocationRef[]
+): string {
+  const v = typeof raw === 'string' ? raw.trim() : '';
+  if (v.length === 0) return '';
+  const key = normalizeCityKey(v);
+  for (let i = 0; i < locations.length; i++) {
+    if (normalizeCityKey(locations[i].city) === key) return locations[i].city;
+  }
+  return v;
 }
 
 /**

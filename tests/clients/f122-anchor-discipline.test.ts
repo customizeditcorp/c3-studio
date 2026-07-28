@@ -33,6 +33,24 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '../..');
 /** ⭐ El ancla fija de TODOS los source-guards de F-122: `main` antes de la feature. */
 const BASE = '9509f6f';
+/**
+ * ⭐⭐ **[ENMIENDA 2026-07-28 · R-55 — el ancla deja de ser UNA y pasa a ser un CONJUNTO
+ * DECLARADO de dos, cada una con su ROL.]**
+ *
+ * · `9509f6f` (`BASE`) — estado **previo a F-122**. Es contra el que se mide todo lo que
+ *   la feature cambió respecto del mundo anterior.
+ * · `86fae28` (`POST_OFFLINE`) — estado **posterior al tramo offline aprobado 9/9**. Es
+ *   el **único commit donde la regresión de idioma existe**, y por eso el guard de R-53
+ *   **debe** anclarse ahí para encontrarse rojo. **Anclarlo a `9509f6f` lo dejaría verde
+ *   por ausencia de sujeto** —ahí la línea llevaba el código crudo y el defecto todavía
+ *   no había nacido—, que es exactamente el no-op que CL-109 documentó cuatro veces.
+ *
+ * ⚠️ **La INTENCIÓN del assert de abajo no cambia y no se debilita:** ningún guard puede
+ * anclarse a `HEAD` ni a un SHA **no declarado**. Lo que se extiende es el conjunto de
+ * SHAs declarados, de uno a dos, cada uno con su rol escrito acá.
+ */
+const POST_OFFLINE = '86fae28';
+const ANCLAS_DECLARADAS: readonly string[] = [BASE, POST_OFFLINE];
 
 const git = (...args: string[]): string =>
   execFileSync('git', args, {
@@ -93,7 +111,7 @@ test('T-15 ⭐⭐ R-39 ningún source-guard de F-122 se ancla a `HEAD`', () => {
   }
 });
 
-test('T-15 ⭐⭐ R-39 todo `git show`/`git grep` de F-122 usa EXACTAMENTE el ancla `9509f6f`', () => {
+test('T-15/T-30 ⭐⭐ R-39/R-55 todo `git show`/`git grep` de F-122 usa una de las anclas DECLARADAS', () => {
   let conAncla = 0;
   for (const rel of ARCHIVOS) {
     const src = codigo(rel);
@@ -102,18 +120,35 @@ test('T-15 ⭐⭐ R-39 todo `git show`/`git grep` de F-122 usa EXACTAMENTE el an
       (m) => m[1]
     );
     for (const c of commits) {
-      assert.equal(
-        c,
-        BASE,
-        `${rel} referencia el commit \`${c}\`, que no es el ancla declarada de F-122`
+      // ⚠️ [ENMIENDA 2026-07-28 · R-55] Antes: `assert.equal(c, BASE)`. Ahora: pertenencia
+      // al CONJUNTO DECLARADO de dos anclas, cada una con su rol arriba. **No se acepta
+      // «cualquier SHA» y no se quitó el assert** — un commit fuera del conjunto sigue
+      // siendo rojo, y `HEAD` lo prohíbe el test anterior.
+      assert.ok(
+        ANCLAS_DECLARADAS.includes(c),
+        `${rel} referencia el commit \`${c}\`, que no es una de las anclas DECLARADAS de ` +
+          `F-122 (${ANCLAS_DECLARADAS.join(', ')}). Un ancla no declarada es una que ` +
+          'nadie puede auditar: el guard afirmaría algo sobre un estado que no está escrito.'
       );
     }
-    if (src.includes(BASE)) conAncla++;
+    if (commits.some((c) => ANCLAS_DECLARADAS.includes(c))) conAncla++;
   }
   assert.ok(
     conAncla >= 3,
-    `sólo ${conAncla} tests de F-122 anclan a \`${BASE}\`: los source-guards deben ` +
-      'comparar contra el ancla, no contra sí mismos'
+    `sólo ${conAncla} tests de F-122 anclan a una de las anclas declaradas: los ` +
+      'source-guards deben comparar contra el ancla, no contra sí mismos'
+  );
+  // ⭐ Y el ancla POST-OFFLINE tiene que estar EN USO, no sólo declarada: es la única
+  // contra la que la regresión de idioma existe (R-53). Si nadie la usara, el conjunto
+  // de dos sería una relajación gratuita del assert anterior.
+  const conPostOffline = ARCHIVOS.filter((rel) =>
+    codigo(rel).includes(POST_OFFLINE)
+  );
+  assert.ok(
+    conPostOffline.length >= 1,
+    'ningún guard se ancla a `86fae28`: el conjunto de dos anclas no puede ser una ' +
+      'licencia sin uso. El anti-no-op de R-53 EXIGE ese commit — contra `9509f6f` el ' +
+      'guard de idioma estaría verde por ausencia de sujeto.'
   );
 });
 
@@ -242,9 +277,16 @@ test('T-15 ⭐⭐ R-39 el perímetro es INDEPENDIENTE del estado del índice y d
     );
   }
   // Y los archivos NUEVOS de F-122 están DENTRO del perímetro, estén o no commiteados.
+  // ⚠️ [ENMIENDA 2026-07-28 · ruptura mecánica declarada] `supabase/seed/locations_ca.sql`
+  // sale de esta lista porque **el artefacto se ELIMINÓ** con R-24 (T-25/DT-07(b)): no
+  // existía en el ancla y ya no existe hoy ⇒ no puede estar en el perímetro, y exigirlo
+  // sería exigir la presencia de un archivo que la enmienda retiró a propósito. **Lo que
+  // el assert protege —que los archivos NUEVOS de F-122 se lean, estén o no en el
+  // índice— se conserva y se AMPLÍA a dos módulos en vez de uno.**
   for (const nuevo of [
     'src/lib/clients/capture-guard.ts',
-    'supabase/seed/locations_ca.sql'
+    'src/lib/clients/locations.ts',
+    'src/components/clients/CitySelect.tsx'
   ]) {
     assert.ok(
       p.includes(nuevo),

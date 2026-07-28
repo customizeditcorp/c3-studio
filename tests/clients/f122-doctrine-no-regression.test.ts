@@ -131,12 +131,28 @@ test('T-14 ⭐⭐⭐ R-03 `toIndustryLabel` conserva su contrato exacto', async 
   );
   // Y la tabla no ganó ni perdió entradas.
   assert.equal(INDUSTRIES.length, 10, '9 rubros + `other`');
-  const antes = desde('src/lib/clients/industry-label.ts');
-  assert.equal(
-    norm(read('src/lib/clients/industry-label.ts')),
-    norm(antes),
-    'R-03: F-122 **extiende el CONSUMO** de la declaración única, no su contrato. Si la ' +
-      'tabla o el criterio cambiaran, F-121 dejaría de valer.'
+  // ⭐⭐ [ENMIENDA 2026-07-28 · ruptura mecánica declarada] Antes acá se comparaba el
+  // ARCHIVO ENTERO contra el ancla. La enmienda 2 **AMPLÍA ese archivo a propósito**
+  // (R-50: la misma tabla gana su etiqueta inglesa y el módulo expone un rendering nuevo)
+  // ⇒ una comparación de archivo completo pasa a prohibir lo que el operador aprobó.
+  //
+  // **Lo que ese assert protegía —que el CONTRATO no cambie— se exige acá, y más fino:**
+  // las filas y sus etiquetas ESPAÑOLAS deben ser idénticas al ancla, valor por valor.
+  // El contrato conductual de `toIndustryLabel` contra `86fae28` lo verifica, caso por
+  // caso, `f122-industry-language.test.ts` (R-54). **No se aflojó nada: se mide lo mismo
+  // sobre la parte que la enmienda declara intocable.**
+  const filasEs = (src: string): [string, string][] =>
+    Array.from(
+      src.matchAll(/value:\s*'([^']+)',\s*\n?\s*label:\s*'([^']+)'/g),
+      (m) => [m[1], m[2]] as [string, string]
+    );
+  const hoy = filasEs(read('src/lib/clients/industry-label.ts'));
+  assert.equal(hoy.length, 10, 'el extractor de filas se rompió: guard no-op');
+  assert.deepEqual(
+    hoy,
+    filasEs(desde('src/lib/clients/industry-label.ts')),
+    'R-03: la tabla y sus etiquetas españolas son las de F-121, fila por fila. Si el ' +
+      'vocabulario o el criterio cambiaran, F-121 dejaría de valer.'
   );
 });
 
@@ -367,14 +383,44 @@ test('T-14 ⭐⭐⭐ R-35 nada en el diff muta las filas de negocio, ni las 2 co
       );
     }
   }
-  // Y la única escritura a producción del frente es el `INSERT` de la tabla de REFERENCIA.
-  const seed = 'supabase/seed/locations_ca.sql';
-  const sql = read(seed)
-    .split('\n')
-    .filter((l) => !/^\s*--/.test(l))
-    .join('\n');
-  assert.ok(!/\bclients\b|\bbriefs\b|\boffers\b|\bbuyer_personas\b/i.test(sql));
-  assert.match(sql, /^\s*INSERT INTO locations_reference/);
+  // ⭐⭐ [ENMIENDA 2026-07-28 · ruptura mecánica declarada] Antes acá se leía
+  // `supabase/seed/locations_ca.sql` para exigir que **la única** escritura a producción
+  // del frente fuera el `INSERT` de la tabla de REFERENCIA. Con **R-24 retirado**, esa
+  // carga **se eliminó** (T-25/DT-07(b)) ⇒ el assert quedó sin sujeto.
+  //
+  // **El reemplazo es MÁS FUERTE, no más flojo:** ya no se admite *una* escritura, se
+  // exige **CERO**. Ningún `.sql` del repo escribe en ninguna tabla — ni de negocio ni de
+  // referencia. Derivado del árbol, no enumerado (R-40).
+  const sqls: string[] = [];
+  const walkSql = (rel: string): void => {
+    let entradas;
+    try {
+      entradas = readdirSync(resolve(REPO, rel), { withFileTypes: true });
+    } catch {
+      return; // `supabase/seed/` ya no existe: exactamente lo buscado
+    }
+    for (const e of entradas) {
+      const r = `${rel}/${e.name}`;
+      if (e.isDirectory()) walkSql(r);
+      else if (/\.sql$/.test(e.name)) sqls.push(r);
+    }
+  };
+  walkSql('supabase');
+  const conEscritura = sqls.filter((r) =>
+    /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\b/i.test(
+      read(r)
+        .split('\n')
+        .filter((l) => !/^\s*--/.test(l))
+        .join('\n')
+    )
+  );
+  assert.deepEqual(
+    conEscritura.filter((r) => !r.startsWith('supabase/migrations/')),
+    [],
+    '⭐ CERO escrituras a producción. Con R-24 retirado, `locations_reference` es SÓLO ' +
+      'LECTURA y el frente deja de tener acciones de frontera sobre datos. Un `.sql` de ' +
+      'carga en `supabase/` no es documentación: es un ejecutable (DT-07).'
+  );
 });
 
 /* ================================================================== */

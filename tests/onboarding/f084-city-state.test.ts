@@ -63,7 +63,11 @@ test('T-10/T-11 brief: existe el espejo mirrorCityStateToClient hacia clients', 
   assert.match(briefSrc, /const mirrorCityStateToClient/);
   assert.match(briefSrc, /\.from\('clients'\)\s*\.update\(patch\)/);
   // Espeja los campos city/state del brief.
-  assert.match(briefSrc, /patch\.city\s*=\s*briefFields\.city/);
+  // ⚠️ [F-122 ENMIENDA 2026-07-28 · R-47] La ciudad pasa por `canonicalizeCity` ANTES de
+  // persistirse (`santa maria` ⇒ `Santa Maria`). El assert se AMPLÍA la ventana para
+  // seguir exigiendo lo mismo que exigía —que el patch tome la ciudad DE `briefFields`—
+  // sin quedar acoplado a que la asignación sea literal. Intent intacto, no debilitado.
+  assert.match(briefSrc, /patch\.city\s*=[\s\S]{0,80}?briefFields\.city/);
   assert.match(briefSrc, /patch\.state\s*=\s*briefFields\.state/);
 });
 

@@ -30,6 +30,23 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { stripPlaceholdersFromCapture } from '../../src/lib/clients/capture-guard.ts';
+import {
+  canonicalizeCity,
+  type LocationRef
+} from '../../src/lib/clients/locations.ts';
+
+/**
+ * ⚠️ **ENMIENDA 2026-07-28 — extensión declarada del ARNÉS, no de los asserts.**
+ * Con R-47, el espejo resuelve la ciudad a su forma canónica antes de persistirla, así
+ * que la función extraída depende de dos cosas más de su clausura: `canonicalizeCity` y
+ * `locations`. Se inyectan igual que `stripPlaceholdersFromCapture` — **ningún assert de
+ * este archivo se debilita ni se quita**, y el arné pasa a ejercitar el canonicalizador
+ * REAL en vez de un doble.
+ */
+const CATALOGO: readonly LocationRef[] = [
+  { city: 'Buellton', county: 'Santa Barbara', region: 'Central Coast' },
+  { city: 'Santa Maria', county: 'Santa Barbara', region: 'Central Coast' }
+];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '../..');
@@ -111,8 +128,18 @@ async function correrEspejo(
     'clientId',
     'toast',
     'stripPlaceholdersFromCapture',
+    'canonicalizeCity',
+    'locations',
     `return (${fuenteDelEspejo()});`
-  )(briefFields, supabase, 'e24ddff3', toast, stripPlaceholdersFromCapture);
+  )(
+    briefFields,
+    supabase,
+    'e24ddff3',
+    toast,
+    stripPlaceholdersFromCapture,
+    canonicalizeCity,
+    CATALOGO
+  );
   try {
     await espejo();
   } catch (e) {
@@ -149,6 +176,39 @@ test('T-10 ⭐⭐⭐ R-32 con una ciudad REAL, el `.update()` sí la lleva (el e
     c.avisos,
     [],
     'no hay nada que avisar cuando no se bloquea nada'
+  );
+});
+
+/* ================================================================== */
+/*  ⭐⭐ R-47/R-48 (ENMIENDA) — el espejo persiste la FORMA CANÓNICA     */
+/* ================================================================== */
+
+test('T-24 ⭐⭐ R-47 el espejo resuelve la colisión de tipeo ANTES de persistir', async () => {
+  for (const escrito of ['santa maria', 'Santa María', '  SANTA MARIA  ']) {
+    const c = await correrEspejo({ city: escrito, state: 'CA' });
+    assert.deepEqual(
+      c.writes[0].patch,
+      { city: 'Santa Maria', state: 'CA' },
+      `«${escrito}» debía aterrizar en la forma canónica del catálogo. Sin R-47, la ` +
+        'enmienda cambia un problema de COBERTURA por uno de INTEGRIDAD, que es peor ' +
+        'porque es silencioso.'
+    );
+  }
+});
+
+test('T-24 ⭐⭐ R-48 una ciudad AUSENTE del catálogo se espeja VERBATIM (trim)', async () => {
+  const c = await correrEspejo({ city: '  Lompoc ', state: 'CA' });
+  assert.deepEqual(
+    c.writes[0].patch,
+    { city: 'Lompoc', state: 'CA' },
+    'R-48: verbatim, sólo `trim`. No se capitaliza, no se corrige y NO se da de alta ' +
+      'en `locations_reference`.'
+  );
+  assert.deepEqual(
+    c.otras,
+    [],
+    'R-48: ningún `insert` — convertir un tipeo en un alta de catálogo reintroduciría ' +
+      'la escritura a producción que R-24 acaba de retirar'
   );
 });
 

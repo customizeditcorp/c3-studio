@@ -119,20 +119,22 @@ export default function ClientForm({
   const [loading, setLoading] = useState(false);
 
   /**
-   * F-122 R-33 — ninguna columna de captura acepta el marcador tecleado, **incluido el
-   * rubro libre que R-09 crea**. Se bloquea el VALOR antes del write; el operador ve por
-   * qué. (La ciudad no se edita en esta superficie.)
+   * ⭐ F-122 R-33 **ENDURECIDO POR LA ENMIENDA 2026-07-28** — ninguna columna de captura
+   * acepta el marcador tecleado, **incluido el rubro libre que R-09 crea**. Se bloquea el
+   * VALOR antes del write; el operador ve por qué.
+   *
+   * ⚠️ **El conjunto se DERIVA, no se enumera (R-40).** La versión anterior listaba 7
+   * campos a mano; enumerar a mano es exactamente cómo el alta perdió `city` cuando R-21
+   * enmendado la reabrió. `stripPlaceholdersFromCapture` cruza las claves del estado con
+   * `CAPTURE_COLUMNS` ⇒ un campo de captura nuevo queda cubierto **por construcción**.
+   * (Esta superficie no captura la ciudad; el conjunto derivado lo refleja solo, sin que
+   * nadie tenga que declararlo ni acordarse de revisarlo.)
+   *
+   * `industryOther` va aparte porque vive **fuera** de `formData` a propósito (H-6).
    */
   const capturaConMarcador = (): boolean =>
-    [
-      formData.business_name,
-      formData.contact_first_name,
-      formData.contact_last_name,
-      formData.phone,
-      formData.email,
-      formData.notes,
-      industryOther
-    ].some((v) => isCapturePlaceholder(v));
+    stripPlaceholdersFromCapture(formData).blocked.length > 0 ||
+    isCapturePlaceholder(industryOther);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

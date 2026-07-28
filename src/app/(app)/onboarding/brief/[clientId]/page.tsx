@@ -25,7 +25,11 @@ import {
 import { assessApproval } from '@/lib/onboarding/approval-guard';
 // F-122 R-21/R-22/R-23 — declaración ÚNICA del catálogo de ciudades + selector
 // compartido con el alta.
-import { fetchLocations, type LocationRef } from '@/lib/clients/locations';
+import {
+  canonicalizeCity,
+  fetchLocations,
+  type LocationRef
+} from '@/lib/clients/locations';
 import { CitySelect } from '@/components/clients/CitySelect';
 // F-122 R-28/R-31/R-32 — ⭐ el espejo del Brief hacia `clients` es el sitio EXACTO por
 // el que el marcador cruzó de espacio-generación a espacio-captura (§0 del spec).
@@ -781,9 +785,15 @@ export default function BriefPage() {
   //
   // Se bloquea el VALOR, no al OPERADOR (R-31): el patch pierde la clave, se avisa, y
   // guardar/aprobar siguen su curso.
+  //
+  // ⭐ F-122 R-47 (ENMIENDA 2026-07-28) — la ciudad que coincide con el catálogo se
+  // espeja en su FORMA CANÓNICA (`santa maria` ⇒ `Santa Maria`); una ciudad genuinamente
+  // ausente se espeja VERBATIM (trim) y **no** se da de alta en `locations_reference`
+  // (R-48). La colisión se cierra en el seam, no en el componente.
   const mirrorCityStateToClient = async () => {
     let patch: Record<string, string> = {};
-    if (briefFields.city) patch.city = briefFields.city;
+    if (briefFields.city)
+      patch.city = canonicalizeCity(briefFields.city, locations);
     if (briefFields.state) patch.state = briefFields.state;
     const guarded = stripPlaceholdersFromCapture(patch);
     patch = guarded.patch as Record<string, string>;
