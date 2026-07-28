@@ -372,11 +372,36 @@ test('T-09 ⭐ R-20 (⤫ F-120) el NÚCLEO no gana campos: `PersonaFields`/`empt
   );
   // (2) Alcance autorizado: el delta de F-120 no ELIMINA nada fuera del bloque Brandboard
   // (R-23). Todo lo demás de la feature es adición (la `<Field>` de `dream_result`).
-  const diff = execFileSync('git', ['diff', BASE, '--', CORE_PAGE_REL], {
-    cwd: REPO,
-    encoding: 'utf8',
-    maxBuffer: 16 * 1024 * 1024
-  });
+  //
+  // ⤫ **F-121 — RE-ANCLAJE DECLARADO DE UN SOLO `assert` (no debilitado). CRUCE NO
+  // PREVISTO por el spec de F-121 — declarado, no silenciado.**
+  // El diff se medía `76e7637 → WORKING TREE`. Mientras F-120 era la punta eso ERA «el
+  // delta de F-120»; con F-121 en la rama pasa a ser `F-120 ∪ F-121`, y F-121 reescribe
+  // en esta misma pantalla las 5 líneas del prefill que inyectaban token-códigos
+  // (`industry` crudo y `GBP: ${…}`, R-17/R-18) ⇒ aparecen como líneas ELIMINADAS que
+  // este assert no puede reconocer. Ruptura **mecánica**, no de intención: el mismo
+  // modo de fallo que F-120 declaró al re-anclar `f119-ui-source-guards`.
+  //
+  // **La intención se preserva ENTERA y se vuelve permanente:** el extremo abierto pasa
+  // a `cb3302d` (`main` con F-120 integrada, PR #47) ⇒ el rango `76e7637..cb3302d` ES
+  // el delta de F-120, congelado. La lista de 12 líneas de abajo queda **intacta, sin
+  // añadir ni quitar una sola entrada** — sigue exigiendo que F-120 no haya eliminado
+  // nada fuera del bloque Brandboard, y no puede volverse verde por movimiento del
+  // ancla (nunca `HEAD`, CL-107).
+  //
+  // La parte (1) —`PersonaFields`/`emptyPersona` byte-idénticos a `76e7637`— sigue
+  // midiendo el **working tree** y por tanto sigue mordiendo sobre F-121: si F-121
+  // tocara un campo del núcleo, esto quedaría rojo.
+  const F120_TIP = 'cb3302d';
+  const diff = execFileSync(
+    'git',
+    ['diff', BASE, F120_TIP, '--', CORE_PAGE_REL],
+    {
+      cwd: REPO,
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024
+    }
+  );
   const eliminadas = diff
     .split('\n')
     .filter((l) => l.startsWith('-') && !l.startsWith('---'))

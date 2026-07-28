@@ -55,6 +55,24 @@ import {
 // por `(client_id, tabla)` sobre TODOS los `status` (R-05): aprobar es un flip in-place
 // que conserva la versión, así que draft y approved comparten namespace.
 import { nextVersion, type VersionedRow } from '@/lib/onboarding/next-version';
+// F-121 (R-13/R-15/R-16) — declaración ÚNICA industria→etiqueta. La ruta era uno de los
+// dos productores de "enum crudo como lenguaje" (`Industria: other`); el otro era el
+// prefill de la pantalla de onboarding. El punto de uso está en el bloque
+// `## DATOS DEL CLIENTE`, y su porqué completo vive ahí.
+//
+// ⚠️ **H-1 — no nombrar acá el identificador del user message:**
+// `tests/generate-content/f110-context-alignment.test.ts:26` recorta el archivo hasta su
+// PRIMERA aparición, y una mención en este encabezado movería el corte por delante del
+// bloque OFV, dejando ese guard sin nada que inspeccionar. Lo verifica `f121-signal-
+// pipeline-drift` T-05 (H-1).
+import { toIndustryLabel } from '@/lib/clients/industry-label';
+// F-121 (R-20/R-23) — guards deterministas del ensamblado del Brief. Backstop del
+// prompt, en la secuencia probada prompt→guard de F-104→F-105 y F-114→F-118.
+import {
+  checkBriefAssembly,
+  assemblyImprovesStrictly,
+  buildAssemblyRetryDirective
+} from '@/lib/onboarding/assembly-guard';
 import { normalizeOffer } from '@/lib/gbp-slice/context';
 import type { RawOfferRow } from '@/lib/gbp-slice/types';
 // F-111 — seam puro del reparto del método (CL-094): expone el decision_frame que
@@ -438,8 +456,23 @@ export async function POST(request: NextRequest) {
     const userMessageBase =
       '## DATOS DEL CLIENTE\nNegocio: ' +
       client.business_name +
+      // F-121 (R-13/R-15/R-16) — la industria pasa por la declaración ÚNICA
+      // (`toIndustryLabel`) en vez de viajar CRUDA. Este `+ client.industry` era uno de
+      // los dos puntos donde la APP fabricaba prosa con códigos: emitía
+      // `Industria: other` y `Industria: portable_toilet_rental_service`, y el modelo,
+      // correctamente, los leyó como sustantivos ("Top 3 en Google Maps para other",
+      // brief `e1ad789c`; "para cleaning en la zona", brief `be43470f`). Un prompt no
+      // puede des-fabricar un string que la app le entrega ya hecho.
+      //
+      // `null` = **sin industria declarada** ⇒ se emite la AUSENCIA explícita, no el
+      // token y no un `N/A` mudo: el modelo tiene que poder marcarla [PENDIENTE], que es
+      // la degradación honesta de F-104/F-106.
+      //
+      // ⚠️ Alcance real (H-5): `userMessageBase` es COMPARTIDO por los 11 steps, así que
+      // esto los mejora a todos por construcción. Ningún test preexistente asserta esta
+      // línea; el control de SCS es CONDUCTUAL, no byte-idéntico (R-37).
       '\nIndustria: ' +
-      client.industry +
+      (toIndustryLabel(client.industry) ?? 'Sin industria declarada') +
       '\nContacto: ' +
       (client.contact_first_name || '') +
       ' ' +
@@ -583,6 +616,88 @@ export async function POST(request: NextRequest) {
       'nurturing',
       'social_content'
     ];
+    // --- F-121: guard determinista del ENSAMBLADO del Brief (backstop) ---
+    // UBICACIÓN OBLIGADA (R-03 / H-2): DESPUÉS de `outputSteps` y ANTES de `if (save)`,
+    // el mismo punto que eligió F-118. Dentro del tramo de F-105 (entre
+    // `// --- F-105: guard` y `let savedRecord`) pondría rojo su source-guard, que
+    // asserta EXACTAMENTE 1 re-call y CERO writes en ese tramo
+    // (`f105-non-fabrication.test.ts:321`).
+    //
+    // Y **ANTES del marcador de bloque de F-118** — restricción que el spec no había
+    // previsto y que se verificó acá: `f118-route-orchestration.test.ts:34` recorta el
+    // tramo de F-118 desde ese marcador hasta el guardado y asserta **exactamente 1**
+    // re-call ahí dentro. Ubicar este bloque DESPUÉS lo metía en esa rebanada y la ponía
+    // roja por 2. Insertándolo antes, los tres tramos quedan disjuntos y **ningún guard
+    // preexistente se toca** — preferible a re-anclar uno más.
+    //
+    // (Y por la misma razón este comentario NO escribe el literal de ese marcador: lo
+    // haría aparecer antes del bloque real y volvería a romper la rebanada ajena. Mismo
+    // modo de fallo que H-1.)
+    //
+    // Detecta los DOS defectos de ensamblado observados en producción el 2026-07-27:
+    //   (a) TOKEN-CÓDIGOS usados como lenguaje — "Top 3 en Google Maps para other"
+    //       (Clara V `e1ad789c`), "para cleaning en la zona" (SCS `be43470f`);
+    //   (b) el MARCADOR incrustado DENTRO de una oración ya redactada (Clara V, 3 claves).
+    //
+    // ⚠️ **Lo que este guard NO es (R-01/R-02):** no mide "contiene algún marcador". Un
+    // marcador que ocupa la RANURA COMPLETA de un campo es degradación honesta LEGÍTIMA
+    // (F-104/F-106) y no dispara nada. El umbral de (b) es CONSERVADOR (DT-03): el Brief
+    // es interno y se aprueba a mano, así que el falso positivo cuesta más que el falso
+    // negativo. Y el contenido marcado **sigue siendo aprobable** por `assessApproval`
+    // (R-24): esto corre en tiempo de GENERACIÓN, nunca de aprobación.
+    //
+    // Acotado al step `brief` (DT-08) y corre con save:true Y save:false. check →
+    // retry-once dirigido (directiva ANTES del cierre de idioma F-081, MISMOS params) →
+    // adopción SÓLO SI MEJORA ESTRICTAMENTE (DT-07) → warning TRANSITORIO, jamás
+    // persistido y jamás bloqueante: `success` sigue siendo `true` (R-20). Un solo
+    // re-call, sin loop. No toca el validador anti-AI, el method-grounding ni el retry
+    // F-102, y es mutuamente excluyente con los branches de F-105 (`ofv`) y F-118 (los 8
+    // steps de contenido) ⇒ la cota POR REQUEST sigue siendo 3.
+    let assemblyWarning:
+      | {
+          rawCodes: { key: string; tokens: string[] }[];
+          embeddedPlaceholders: string[];
+          retried: boolean;
+        }
+      | undefined;
+    if (step === 'brief') {
+      let ag = checkBriefAssembly(parsedContent);
+      let agRetried = false;
+      if (!ag.ok) {
+        agRetried = true;
+        const directive = buildAssemblyRetryDirective(ag);
+        const retryCompletion = await openai.chat.completions.create({
+          ...callParams,
+          messages: [
+            { role: 'system', content: systemContent },
+            {
+              role: 'user',
+              content: userMessageBase + '\n\n' + directive + languageDirective
+            }
+          ]
+        });
+        const retryText = retryCompletion.choices[0]?.message?.content || '';
+        const retryResult = parseGeneratedContent(retryText);
+        if (retryResult.ok) {
+          const retryAg = checkBriefAssembly(retryResult.content);
+          if (assemblyImprovesStrictly(ag, retryAg)) {
+            // DT-07: adoptar SÓLO si el retry es usable Y mejora. Igual o peor, se
+            // conserva la primera generación (no-regresión).
+            parsedContent = retryResult.content;
+            rawText = retryResult.rawText;
+            ag = retryAg;
+          }
+        }
+        // else: retry inválido/no-parseable → conservar el original (DT-07).
+      }
+      if (!ag.ok) {
+        assemblyWarning = {
+          rawCodes: ag.rawCodes,
+          embeddedPlaceholders: ag.embeddedPlaceholders,
+          retried: agRetried
+        };
+      }
+    }
     // --- F-118: guard determinista de fabricación en COPY PUBLICABLE (backstop) ---
     // UBICACIÓN OBLIGADA (R-27/H-3): DESPUÉS de `outputSteps` y ANTES de `if (save)`.
     // Dentro del tramo de F-105 (entre `// --- F-105: guard` y `let savedRecord`) pondría
@@ -997,7 +1112,14 @@ export async function POST(request: NextRequest) {
       // tiers), spread-guarded: omitido en el camino feliz, no rompe consumidores y NO
       // bloquea `success: true`. La constancia persistida (R-24) es otra cosa y sólo
       // aplica al tier `commitment`.
-      ...(fabricationWarning ? { fabrication_warning: fabricationWarning } : {})
+      ...(fabricationWarning
+        ? { fabrication_warning: fabricationWarning }
+        : {}),
+      // F-121 R-20 — warning TRANSITORIO del ensamblado del Brief. Spread-guarded:
+      // omitido en el camino feliz, no rompe consumidores, **NUNCA se persiste** (no
+      // entra en `insertData` ni en `content._*`) y **NUNCA bloquea**: `success` sigue
+      // siendo `true` y el contenido siempre se devuelve.
+      ...(assemblyWarning ? { assembly_warning: assemblyWarning } : {})
     });
   } catch (error) {
     console.error('generate-content error:', error);

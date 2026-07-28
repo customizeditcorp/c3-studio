@@ -52,11 +52,25 @@ test('R-07 create() acotado (retry-once por motivo, no loop)', () => {
   // Nota: la cota por REQUEST sigue siendo 3 (1 base + 1 F-102 + 1 de no-fabricación);
   // los branches `ofv` (F-105) y de contenido (F-118) son mutuamente excluyentes por
   // `step` y nunca se suman.
-  // Los tres retries son single-shot y ortogonales (motivos distintos), nunca un loop.
+  // ⤫ **F-121 (R-20/DT-07) — la cota SUBE de 4 a 5.** RE-ANCLAJE DECLARADO DE UN SOLO
+  // `assert`, por el MISMO movimiento con que F-105 la subió de 2 a 3 y F-118 de 3 a 4, y
+  // por la misma razón: **la cota está para subirse conscientemente cuando aparece un
+  // motivo de retry nuevo y legítimo, NO para sortearse con un alias que engañe al grep.**
+  // El call-site nuevo es el retry-once dirigido del guard de ENSAMBLADO del Brief
+  // (token-códigos usados como lenguaje + marcador incrustado en prosa), acotado al step
+  // `brief` (DT-08).
+  //
+  // **La INTENCIÓN del assert queda intacta:** sigue siendo una cota EXACTA (no un `>=`),
+  // de modo que un call-site no declarado la pone roja igual que antes.
+  //
+  // Nota: la cota por REQUEST sigue siendo **3** (1 base + 1 F-102 + 1 de guard). Los
+  // branches `ofv` (F-105), los 8 steps de contenido (F-118) y `brief` (F-121) son
+  // mutuamente excluyentes por `step` y nunca se suman.
+  // Los cuatro retries son single-shot y ortogonales (motivos distintos), nunca un loop.
   assert.equal(
     matches.length,
-    4,
-    'esperaba 4 create() (call + retry estructural F-102 + retry no-fabricación F-105 + retry fabricación F-118)'
+    5,
+    'esperaba 5 create() (call + retry estructural F-102 + retry no-fabricación F-105 + retry fabricación F-118 + retry ensamblado F-121)'
   );
   // No hay bucle/backoff en torno a ningún retry.
   assert.doesNotMatch(ROUTE, /for\s*\([^)]*retr/i);

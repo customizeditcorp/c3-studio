@@ -43,6 +43,10 @@ REGLAS:
 - Modo single-shot no-interactivo: genera el brief completo con la información disponible; marca [PENDIENTE] lo genuinamente ausente; nunca preguntes, nunca bloquees, nunca fabriques
 - Lenguaje del cliente, no corporativo
 - Claims con datos concretos (números, fechas, métricas)
+- Los IDENTIFICADORES y CÓDIGOS del contexto NO son lenguaje. Valores como `other`, `no_gbp`, `ranking_no_calls`, `nothing`, `2_5`, `new_license`, `cleaning` o `portable_toilet_rental_service` son etiquetas internas del sistema, no palabras del idioma: NUNCA los uses como sustantivo dentro de una frase redactada (nunca "para other en la zona", nunca "GBP: no_gbp"). Nombra la realidad del negocio en español corriente; si el dato no se conoce, marca el campo COMPLETO como [PENDIENTE] en vez de escribir el identificador
+- DÓNDE va el marcador: [PENDIENTE] ocupa la RANURA COMPLETA de un campo — o el valor entero es el marcador, o la oración se escribe sin él. NUNCA lo incrustes como un fragmento dentro de una oración ya redactada (mal: "Top 3 en Google Maps para [PENDIENTE] + 15-20 leads/mes"; bien: "Top 3 en Google Maps en su zona de servicio" o el campo entero en [PENDIENTE])
+- Dentro de `raw_text` el marcador puede ocupar la LÍNEA ETIQUETADA COMPLETA de un campo (por ejemplo `- Licencias: [PENDIENTE]`), y tampoco ahí puede aparecer dentro de una oración redactada
+- `raw_text` es el brief LEGIBLE en markdown, con sus 5 BLOQUES y sus TÍTULOS tal como se listan arriba, no un volcado plano de `- clave: valor`
 
 OUTPUT: JSON con los 5 bloques + raw_text en markdown.
 

@@ -14,6 +14,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { useUser } from '@/contexts/UserContext';
 import { logActivity } from '@/lib/activity';
+// F-121 R-14/DT-05 — la tabla industria→etiqueta se declara UNA sola vez
+// (`src/lib/clients/industry-label.ts`). Esta era la copia 1 de 2.
+import { INDUSTRIES } from '@/lib/clients/industry-label';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import type { PostgrestError } from '@supabase/supabase-js';
@@ -62,19 +65,6 @@ export type ClientFormData = {
   disc_profile: string;
   notes: string;
 };
-
-const INDUSTRIES = [
-  { value: 'landscaping', label: 'Landscaping' },
-  { value: 'roofing', label: 'Roofing' },
-  { value: 'plumbing', label: 'Plomería' },
-  { value: 'hvac', label: 'HVAC' },
-  { value: 'painting', label: 'Pintura' },
-  { value: 'cleaning', label: 'Limpieza' },
-  { value: 'fencing', label: 'Cercas' },
-  { value: 'electrical', label: 'Electricidad' },
-  { value: 'general_contractor', label: 'Contratista General' },
-  { value: 'other', label: 'Otro' }
-];
 
 const DISC_PROFILES = [
   { value: 'D', label: 'D — Dominante' },

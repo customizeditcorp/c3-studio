@@ -310,9 +310,27 @@ test('T-11 R-43 F-119 no introduce ninguna migración nueva', () => {
 /* ================================================================== */
 
 test('T-11 ⭐ R-38 `prompts/**` sin ningún cambio y los `meta.json` sin bump de versión', () => {
+  /**
+   * ⤫ **F-121 — RE-ANCLAJE DECLARADO DE UN SOLO `assert` (no debilitado). CRUCE NO
+   * PREVISTO por el spec de F-121 — declarado, no silenciado.**
+   *
+   * El diff se medía `2c072b6 → WORKING TREE`. Su intención, dicha en el mensaje, es
+   * *«**F-119** no toca prompts»* — y eso sigue siendo cierto y verificable. Lo que dejó
+   * de ser cierto es que el working tree SEA F-119: F-121 edita
+   * `prompts/brief/system_prompt.md` por diseño (R-19/R-21/R-22/R-25), de forma
+   * **ADITIVA** y **sin bump de `meta.json`** (H-4), y su propio guard
+   * `f121-brief-assembly-rules` T-10 verifica ese perímetro.
+   *
+   * Re-anclado al **rango congelado** `2c072b6 → 76e7637` (`main` con F-119 integrada,
+   * PR #46): la afirmación sobre F-119 queda comprobada para siempre y no puede volverse
+   * verde por movimiento del ancla (nunca `HEAD`, CL-107). La segunda mitad del test
+   * —ningún `meta.json` menciona F-119— sigue leyendo el **disco actual** y por tanto
+   * sigue mordiendo sobre F-121.
+   */
+  const F119_TIP = '76e7637';
   const tocados = execFileSync(
     'git',
-    ['diff', '--name-only', BASE, '--', 'prompts'],
+    ['diff', '--name-only', BASE, F119_TIP, '--', 'prompts'],
     {
       cwd: REPO,
       encoding: 'utf8'

@@ -56,6 +56,13 @@ import {
   type GenerationCandidateRow,
   type GenerationSourceResult
 } from '@/lib/onboarding/generation-source';
+// F-121 (R-06/R-07/R-08) — la señal del Brief se DERIVA del seam puro de insumos, que
+// está atado por source-guard al `userMessageBase` real de `route.ts` (R-12).
+import {
+  assessBriefInputs,
+  type BriefInputAssessment,
+  type DiagnosticRowLike
+} from '@/lib/onboarding/brief-inputs';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -154,6 +161,13 @@ export default function ClientDetailPage() {
 
   type ProgressState = {
     hasDiagnostic: boolean;
+    /**
+     * F-121 R-06/R-08 — DERIVADO de `assessBriefInputs`, no de la existencia de una
+     * fila. Es el otro lado del contrato roto: `hasDiagnostic` dice **qué se
+     * registró**, esto dice **qué va a recibir el generador**. Los dos pueden
+     * diferir, y cuando difieren la ficha ahora lo muestra en vez de prometer ✓.
+     */
+    briefInputsAvailable: boolean;
     hasCredentials: boolean;
     hasNap: boolean;
     briefApproved: boolean;
@@ -164,8 +178,16 @@ export default function ClientDetailPage() {
     previewSent: boolean;
   };
 
+  // F-121 R-08 — el DETALLE de la señal vive FUERA de `progress` a propósito: el
+  // contador del pie hace `Object.values(progress).filter(Boolean).length`, y cualquier
+  // valor no booleano ahí (un número, un string) lo falsearía en silencio.
+  const [briefInputs, setBriefInputs] = useState<BriefInputAssessment | null>(
+    null
+  );
+
   const [progress, setProgress] = useState<ProgressState>({
     hasDiagnostic: false,
+    briefInputsAvailable: false,
     hasCredentials: false,
     hasNap: false,
     briefApproved: false,
@@ -190,7 +212,7 @@ export default function ClientDetailPage() {
 
     // Fetch progress checklist data in parallel
     const [
-      { data: diagnosticData },
+      { data: diagnosticRows },
       { data: credentialsData },
       { data: napData },
       { data: briefData },
@@ -202,12 +224,30 @@ export default function ClientDetailPage() {
       { data: previewData },
       { data: gbpAssetData }
     ] = await Promise.all([
+      // ------------------------------------------------------------------ //
+      // F-121 (rama 1b) — R-06/R-10: de CHEQUEAR EXISTENCIA a DERIVAR la señal.
+      // ------------------------------------------------------------------ //
+      // Antes: `.select('id').limit(1).maybeSingle()` → `hasDiagnostic: !!diagnosticData`,
+      // es decir EXISTENCIA DE FILA rotulada «Diagnóstico completado ✓». R & M QTB LLC
+      // tiene fila, la ficha decía ✓, y su Brief salió con 23/29 claves en [PENDIENTE]
+      // porque el generador no recibió nada más que el prefill.
+      //
+      // Ahora se traen TODOS los candidatos (sin `limit(1)`) porque R-10 exige elegir de
+      // forma DETERMINISTA y DECLARADA cuando hay más de uno: R & M tiene DOS filas
+      // mutuamente contradictorias (`bc0a1027` vs `33872f29`), y `limit(1)` sin orden
+      // total dejaba el veredicto a merced del plan de la query. El criterio vive en
+      // `selectDiagnosticRow`, compartido con el prefill (una fila, un criterio).
+      //
+      // ⚠️ **FRONTERA (CL-102 / CL-104 §5.2):** la proyección se limita a los MISMOS 2
+      // campos de prefill de siempre (`team_size`, y `google_presence`+`digital_health`)
+      // más `id`/`created_at` para poder elegir. NO se lee `revenue_range`,
+      // `license_status`, `expectation`, `client_management` ni `recommended_*`: esos son
+      // la rama (2), elevada al operador (GATE-D1) y NO implementada. Esto MIDE el
+      // aporte del diagnóstico, no lo amplía.
       supabase
         .from('diagnostics')
-        .select('id')
-        .eq('client_id', id)
-        .limit(1)
-        .maybeSingle(),
+        .select('id, created_at, team_size, google_presence, digital_health')
+        .eq('client_id', id),
       supabase
         .from('credentials')
         .select('id')
@@ -311,8 +351,24 @@ export default function ClientDetailPage() {
     });
     setOfvSource(ofvSourceResult);
 
+    // F-121 R-06/R-07/R-08 — la señal del Brief se DERIVA del seam puro, con la misma
+    // declaración de insumos que ata `f121-brief-inputs` al `userMessageBase` real de
+    // `route.ts` (R-12). Si mañana alguien agrega una fuente al contexto del step
+    // `brief` sin declararla, ese source-guard queda ROJO — que es la diferencia entre
+    // arreglar el síntoma y arreglar la clase de fallo.
+    const briefInputs = assessBriefInputs({
+      client: data ?? null,
+      diagnostics: (diagnosticRows ?? []) as DiagnosticRowLike[]
+    });
+    setBriefInputs(briefInputs);
+
     setProgress({
-      hasDiagnostic: !!diagnosticData,
+      // Sigue siendo EXISTENCIA — y ahora la etiqueta lo dice: «Diagnóstico registrado».
+      hasDiagnostic: (diagnosticRows ?? []).length > 0,
+      // R-06/R-11 — disponibilidad REAL de insumos, decidida por el SEAM (la ficha no
+      // tiene criterio propio: coherencia por construcción, doctrina F-119/F-120).
+      // Puede ser `false` con diagnóstico registrado: ése es el caso R & M exacto.
+      briefInputsAvailable: briefInputs.allInputsPresent,
       hasCredentials: !!credentialsData,
       hasNap: !!napData,
       briefApproved: !!briefData,
@@ -678,9 +734,28 @@ export default function ClientDetailPage() {
                 <CardContent>
                   <div className='grid gap-2 sm:grid-cols-2'>
                     {[
+                      // ---------------------------------------------------- //
+                      // F-121 R-08 — DOS señales distintas donde antes había UNA
+                      // que prometía lo que el pipeline no entrega.
+                      // ---------------------------------------------------- //
+                      // «Diagnóstico completado» afirmaba una cosa (el diagnóstico
+                      // está hecho ⇒ el Brief tiene con qué) y medía otra (existe
+                      // una fila). Ahora cada ítem dice exactamente lo que mide:
+                      //   · REGISTRADO  = existe la fila de `diagnostics`.
+                      //   · INSUMOS     = lo que el generador va a recibir, derivado
+                      //                   de la misma declaración que arma el
+                      //                   contexto del step `brief` (R-06/R-12).
+                      // R & M QTB LLC es el caso: registrado ✅, insumos ⬜ 2/8 — y su
+                      // Brief salió con 23/29 claves en [PENDIENTE], que es CORRECTO.
                       {
-                        label: 'Diagnóstico completado',
+                        label: 'Diagnóstico registrado',
                         done: progress.hasDiagnostic
+                      },
+                      {
+                        label: briefInputs
+                          ? `Insumos del Brief disponibles (${briefInputs.present.length}/${briefInputs.present.length + briefInputs.missing.length})`
+                          : 'Insumos del Brief disponibles',
+                        done: progress.briefInputsAvailable
                       },
                       {
                         label: 'Credenciales verificadas',

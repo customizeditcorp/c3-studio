@@ -18,6 +18,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { useUser } from '@/contexts/UserContext';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { logActivity } from '@/lib/activity';
+// F-121 R-14/DT-05 — la tabla industria→etiqueta se declara UNA sola vez
+// (`src/lib/clients/industry-label.ts`). Esta era la copia 2 de 2.
+import { INDUSTRIES } from '@/lib/clients/industry-label';
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
@@ -163,19 +166,6 @@ function calculateTier(
       return PRESENCIA_DIGITAL;
   }
 }
-
-const INDUSTRIES = [
-  { value: 'landscaping', label: 'Landscaping' },
-  { value: 'roofing', label: 'Roofing' },
-  { value: 'plumbing', label: 'Plomería' },
-  { value: 'hvac', label: 'HVAC' },
-  { value: 'painting', label: 'Pintura' },
-  { value: 'cleaning', label: 'Limpieza' },
-  { value: 'fencing', label: 'Cercas' },
-  { value: 'electrical', label: 'Electricidad' },
-  { value: 'general_contractor', label: 'Contratista General' },
-  { value: 'other', label: 'Otro' }
-];
 
 const DISC_PROFILES = [
   { value: 'D', label: 'D — Dominante' },
