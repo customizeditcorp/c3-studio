@@ -240,10 +240,16 @@ export default function ClientForm({
    * ⭐⭐⭐ **F-122 BLOQUE G / R-56 — el valor guardado FUERA de la tabla, preservado.**
    *
    * Sin esto, un cliente con un rubro libre (`Sign Shop`, `b016f86b`) abría este formulario
-   * con el desplegable **vacío** —ninguna `<option>` matcheaba— y al enviar,
-   * `resolveIndustryForPersist('', '')` devolvía `null` ⇒ **ningún cambio del cliente se
-   * podía guardar**. Es el defecto ESPEJO del que F-122 vino a cerrar, y fue la propia
-   * feature la que lo introdujo al abrir el vocabulario sin cubrir la lectura.
+   * con el desplegable **vacío** —ninguna `<option>` matcheaba—: el operador **no podía ver
+   * ni editar el rubro que el cliente ya tenía guardado**, y si tocaba el control lo perdía
+   * de vista. Es el defecto ESPEJO del que F-122 vino a cerrar, y lo introdujo la propia
+   * feature al abrir el vocabulario sin cubrir la lectura.
+   *
+   * ⚠️ **Lo que este defecto NO era, corregido por la §6.1 en vivo del 2026-07-28:** no
+   * bloqueaba el guardado. `formData.industry` **conserva** el valor aunque el `<select>`
+   * no lo pinte —el estado de React no se vacía porque falte una `<option>`— así que al
+   * submit llegaba `'Sign Shop'`, no `''`. **El defecto es de REPRESENTACIÓN, no de
+   * persistencia**; afirmar el bloqueo sería describir un mundo que no existe.
    *
    * El patrón es el que `CitySelect` ya tiene (R-23): **mostrar, señalar, no perder**. La
    * decisión vive en el seam (`industry-input.ts`), no acá: esta superficie presenta.
