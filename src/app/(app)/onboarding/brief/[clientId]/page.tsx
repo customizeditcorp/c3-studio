@@ -38,6 +38,16 @@ import {
   type GenerationCandidateRow,
   type GenerationSourceResult
 } from '@/lib/onboarding/generation-source';
+// F-121 (R-17/R-18) — el prefill deja de copiar token-códigos: industria y los DOS
+// campos de siempre del diagnóstico pasan por los seams de etiquetas. No se amplía
+// ninguna fuente (GATE-D1 pendiente).
+import { toIndustryLabel } from '@/lib/clients/industry-label';
+import {
+  buildDigitalPresenceSentence,
+  toTeamSizeLabel
+} from '@/lib/onboarding/diagnostic-labels';
+// F-121 (R-27/R-28) — aviso ADVISORY de residuo de prueba en campos manuales.
+import { detectTestResidueFields } from '@/lib/onboarding/assembly-guard';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
@@ -227,6 +237,49 @@ function GenerationSourceNotice({
       ) : null}
       . Tus cambios se guardan igual; para que alimenten la generación, aprobá
       esta versión.
+    </div>
+  );
+}
+
+/**
+ * F-121 (R-27/R-28/R-29) — **Aviso ADVISORY de residuo de prueba.**
+ *
+ * `differentiators = "TEST T-04"` viajó al modelo como un hecho afirmado por el operador
+ * y quedó en el Brief de R & M QTB LLC (`b56d1fa3`). **No hubo un bug: faltó una señal.**
+ * El mecanismo, verificado y documentado en la cabecera de `assembly-guard.ts`, tiene 4
+ * eslabones legítimos por separado (carga sin filtro de `status` → `briefFields` →
+ * `structured_fields` verbatim → bucle de re-inyección post-generación); lo que nunca
+ * existió es alguien que le dijera al operador que ese valor iba a viajar.
+ *
+ * **Avisa, NO bloquea (DT-04, R-28/R-29):**
+ *   · cero `disabled`, cero `onClick`, cero escrituras: no puede gatear nada;
+ *   · **no muta ni borra el valor** — corregir el dato es del operador (R-29), y el
+ *     `delete` está prohibido al agente;
+ *   · bloquear colisionaría con R-02 (crearía una condición nueva que impide aprobar) y
+ *     frenaría por un falso positivo a un operador que hoy no está frenado.
+ *
+ * Sin residuos ⇒ `return null` ⇒ **delta visual CERO** (mismo patrón que
+ * `GenerationSourceNotice`, F-119 R-28).
+ */
+function TestResidueNotice({ fields }: { fields: object }) {
+  const residuos = detectTestResidueFields(fields);
+  if (residuos.length === 0) return null;
+  return (
+    <div className='rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800'>
+      <span className='font-medium'>
+        {residuos.length === 1
+          ? 'Un campo parece contener un valor de prueba.'
+          : `${residuos.length} campos parecen contener valores de prueba.`}
+      </span>{' '}
+      {residuos.map((k) => (
+        <code key={k} className='mr-1'>
+          {k}
+        </code>
+      ))}
+      — estos valores se envían al modelo <strong>tal cual</strong> como input
+      del operador, y el generador los trata como hechos del negocio. Revisalos
+      antes de generar. No se modifica ni se borra nada automáticamente: la
+      corrección es tuya.
     </div>
   );
 }
@@ -551,7 +604,13 @@ export default function BriefPage() {
       if (c) {
         if (!parsed.business_name)
           parsed.business_name = (c.business_name as string) || '';
-        if (!parsed.industry) parsed.industry = (c.industry as string) || '';
+        // F-121 R-17 — el prefill copia la ETIQUETA, nunca el token-código. Copiarlo
+        // crudo lo metía en `input_data.structured_fields` y de ahí salió la clave
+        // `industry` de las 3 filas de producción (`other`,
+        // `portable_toilet_rental_service`). `null` = sin industria declarada ⇒ el
+        // campo queda vacío y el modelo lo marca ausente, que es la verdad.
+        if (!parsed.industry)
+          parsed.industry = toIndustryLabel(c.industry as string) || '';
         if (!parsed.city) parsed.city = (c.city as string) || '';
         if (!parsed.state) parsed.state = (c.state as string) || 'CA';
         if (!parsed.service_area && c.service_area_cities)
@@ -560,10 +619,19 @@ export default function BriefPage() {
             : '';
       }
       if (d) {
+        // F-121 R-18 — LOS MISMOS 2 CAMPOS DE SIEMPRE (`team_size` y
+        // `google_presence`+`digital_health`), sólo que en LENGUAJE. No se amplía lo
+        // que el diagnóstico aporta: eso es la rama (2), elevada al operador
+        // (GATE-D1) y NO implementada. Antes esto ensamblaba
+        // `GBP: no_gbp, Salud digital: nothing` y se persistió verbatim.
         if (!parsed.team_size)
-          parsed.team_size = (d as DiagnosticData).team_size || '';
+          parsed.team_size =
+            toTeamSizeLabel((d as DiagnosticData).team_size) || '';
         if (!parsed.digital_presence)
-          parsed.digital_presence = `GBP: ${(d as DiagnosticData).google_presence || 'N/A'}, Salud digital: ${(d as DiagnosticData).digital_health || 'N/A'}`;
+          parsed.digital_presence = buildDigitalPresenceSentence(
+            (d as DiagnosticData).google_presence,
+            (d as DiagnosticData).digital_health
+          );
       }
       setBriefFields(parsed);
     } else if (c) {
@@ -571,7 +639,8 @@ export default function BriefPage() {
       setBriefFields({
         ...emptyBrief,
         business_name: (c.business_name as string) || '',
-        industry: (c.industry as string) || '',
+        // F-121 R-17 — segundo call-site del prefill de industria (rama "sin brief").
+        industry: toIndustryLabel(c.industry as string) || '',
         city: (c.city as string) || '',
         state: (c.state as string) || 'CA',
         service_area: c.service_area_cities
@@ -579,9 +648,15 @@ export default function BriefPage() {
             ? (c.service_area_cities as string[]).join(', ')
             : ''
           : '',
-        team_size: d ? (d as DiagnosticData).team_size || '' : '',
+        // F-121 R-18 — ídem: mismos 2 campos, en lenguaje.
+        team_size: d
+          ? toTeamSizeLabel((d as DiagnosticData).team_size) || ''
+          : '',
         digital_presence: d
-          ? `GBP: ${(d as DiagnosticData).google_presence || 'N/A'}, Salud: ${(d as DiagnosticData).digital_health || 'N/A'}`
+          ? buildDigitalPresenceSentence(
+              (d as DiagnosticData).google_presence,
+              (d as DiagnosticData).digital_health
+            )
           : ''
       });
     }
@@ -1643,6 +1718,11 @@ export default function BriefPage() {
                 </Field>
               </div>
             </BlockCard>
+
+            {/* F-121 R-28 — aviso ADVISORY de residuo de prueba, ANTES de generar y de
+                aprobar. Ver `TestResidueNotice` para el mecanismo y el porqué de que
+                sea aviso y no gate (DT-04). */}
+            <TestResidueNotice fields={briefFields} />
 
             {/* Actions */}
             <div className='flex flex-wrap gap-2'>

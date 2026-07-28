@@ -69,13 +69,42 @@ const stripComments = (src: string): string =>
  * `try/catch continue`, y la lista de autorizados ya la contempla), así que el veredicto no
  * cambiaba; pero **el conjunto medido sí cambiaba con el entorno**, que es otra forma del
  * mismo defecto. El `-M` lo fija: **15 en los dos estados y bajo las dos configuraciones**.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────
+ * ⤫ **F-121 — RE-ANCLAJE DECLARADO DE UN SOLO VEHÍCULO (no debilitado). CRUCE NO
+ * PREVISTO por el spec de F-121 — declarado, no silenciado.**
+ * ─────────────────────────────────────────────────────────────────────────────────
+ * Este helper medía `76e7637 → WORKING TREE`. Mientras F-120 era la punta, ese rango
+ * **era** el diff de F-120. Con F-121 en la rama deja de serlo: el conjunto pasa a ser
+ * `F-120 ∪ F-121`, y los cuatro asserts que lo consumen —todos titulados *«el diff de
+ * **F-120**…»*— empiezan a hablar de otra cosa. Se rompe **mecánicamente**, no por
+ * intención: exactamente el modo de fallo de H-1/H-2 y el que F-120 declaró al
+ * re-anclar el contador de `disabled` de `f119-ui-source-guards`.
+ *
+ * **La intención se preserva ENTERA y se vuelve permanente.** El extremo abierto pasa
+ * de «el working tree» a **`cb3302d`** (`main` con F-120 ya integrada, PR #47) ⇒ el
+ * rango `76e7637..cb3302d` **ES** el diff de F-120, congelado y verificable para
+ * siempre. Los cuatro asserts siguen mordiendo sobre exactamente el mismo conjunto:
+ * **las MISMAS 15 entradas, verificadas byte a byte contra las 15 que este comentario
+ * ya documentaba** — mismos paths, mismo orden, con `-M` y sin él.
+ *
+ * **La lección de CL-109 (`untracked`) NO se pierde, se cumple mejor:** el motivo de
+ * unir `ls-files --others` era que el guard no se declarara verde sin haber mirado los
+ * archivos NUEVOS de la feature. En un rango de commits **todos** los archivos de
+ * F-120 están commiteados, así que el diff los ve **todos**, y los ve igual en los dos
+ * estados del working tree — que es el criterio completo (R-33), ahora por
+ * construcción y no por coincidencia.
+ *
+ * **Lo que F-121 NO hace:** no añade una sola entrada a la lista de autorizados de más
+ * abajo. Ampliarla sería debilitar el guard; congelar su rango es hacerlo exacto. El
+ * perímetro de F-121 lo vigila su propio guard, `f121-doctrine-no-regression`.
  */
+/** El extremo cerrado del rango: `main` con F-120 ya integrada (PR #47). */
+const F120_TIP = 'cb3302d';
 const archivosTocados = (): string[] =>
-  [
-    // `-M` EXPLÍCITO: el conjunto no puede depender del `diff.renames` del entorno.
-    ...git('diff', '--name-only', '-M', BASE).split('\n'),
-    ...git('ls-files', '--others', '--exclude-standard').split('\n')
-  ]
+  // `-M` EXPLÍCITO: el conjunto no puede depender del `diff.renames` del entorno.
+  git('diff', '--name-only', '-M', BASE, F120_TIP)
+    .split('\n')
     .filter(Boolean)
     // Ruido de entorno local que no forma parte de la feature.
     .filter(
@@ -300,7 +329,30 @@ test('T-16 ⭐ R-42 los 4 seams que F-120 CONSUME son BYTE-IDÉNTICOS a `76e7637
 
 test('T-16 R-42 los read-paths del generador siguen intactos', () => {
   const ROUTE = read(ROUTE_REL);
-  assert.equal(ROUTE, desde(ROUTE_REL), 'F-120 no toca el generador');
+  /**
+   * ⤫ **F-121 — RE-ANCLAJE DECLARADO DE UN SOLO `assert` (no debilitado). CRUCE NO
+   * PREVISTO por el spec de F-121 — declarado, no silenciado.**
+   *
+   * La igualdad byte a byte comparaba el **working tree** contra `76e7637`. Su intención,
+   * dicha en el propio mensaje, es *«**F-120** no toca el generador»* — y eso sigue
+   * siendo cierto y sigue siendo verificable. Lo que dejó de ser cierto es que el
+   * working tree SEA F-120: F-121 edita `route.ts` por diseño (R-13), porque esa ruta
+   * era uno de los dos productores de "enum crudo como lenguaje" (`Industria: other`
+   * inyectado crudo al contexto de los 11 steps).
+   *
+   * Re-anclado al **rango congelado** `76e7637 → cb3302d` (`main` con F-120 integrada,
+   * PR #47): la afirmación sobre F-120 queda comprobada **para siempre** y no puede
+   * volverse verde por movimiento del ancla (nunca `HEAD`, CL-107).
+   *
+   * **Los otros dos asserts NO se tocan y siguen midiendo el working tree**, así que
+   * este test sigue mordiendo sobre F-121: si F-121 rompiera un selector canónico del
+   * generador, esto queda rojo igual que antes.
+   */
+  assert.equal(
+    git('show', `${F120_TIP}:${ROUTE_REL}`),
+    desde(ROUTE_REL),
+    'F-120 no toca el generador'
+  );
   assert.match(ROUTE, /pickCanonicalOffer\s*\(/);
   assert.match(ROUTE, /pickCanonicalContentRow\s*\(/);
 });
