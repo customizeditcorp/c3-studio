@@ -2,6 +2,10 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+// F-122 R-14/R-18 — este sitio leía `clients.industry` CRUDO y lo componía dentro
+// de un string. La declaración única de F-121 es la fuente; la ausencia se expresa como
+// ausencia, nunca como token ni como hueco (R-15).
+import { toIndustryLabel } from '@/lib/clients/industry-label';
 const AI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o';
 export async function POST(request: NextRequest) {
   try {
@@ -95,7 +99,7 @@ export async function POST(request: NextRequest) {
                 'Generate SEO-optimized alt text for this image. Context: Business: ' +
                 (client?.business_name || 'Unknown') +
                 ', Industry: ' +
-                (client?.industry || 'home services') +
+                (toIndustryLabel(client?.industry) ?? 'home services') +
                 ', GBP Category: ' +
                 ((photo as any).gbp_category || 'work') +
                 ', Location: Central Coast, California. Rules: Max 125 characters. Include business type and location naturally. Describe what is VISIBLE. English only. No quotes. No prefix. Respond with ONLY the alt text.'
@@ -109,17 +113,15 @@ export async function POST(request: NextRequest) {
       .from('client_photos')
       .update({ alt_text_auto: altText })
       .eq('id', photo_id);
-    await supabase
-      .from('activity_log')
-      .insert({
-        tenant_id: client.tenant_id,
-        client_id,
-        user_id: user.id,
-        action: 'alt_text_generated',
-        entity_type: 'photo',
-        entity_id: photo_id,
-        metadata: { alt_text: altText }
-      });
+    await supabase.from('activity_log').insert({
+      tenant_id: client.tenant_id,
+      client_id,
+      user_id: user.id,
+      action: 'alt_text_generated',
+      entity_type: 'photo',
+      entity_id: photo_id,
+      metadata: { alt_text: altText }
+    });
     return NextResponse.json({ success: true, alt_text: altText, photo_id });
   } catch (error) {
     console.error('generate-alt-text error:', error);

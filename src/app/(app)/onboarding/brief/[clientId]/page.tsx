@@ -23,6 +23,13 @@ import {
 // F-109 — (c) guard de aprobación: bloquea aprobar vacío / esencialmente-todo-
 // placeholder. NO bloquea `[PENDIENTE]` legítimo (invariante F-104/F-106).
 import { assessApproval } from '@/lib/onboarding/approval-guard';
+// F-122 R-21/R-22/R-23 — declaración ÚNICA del catálogo de ciudades + selector
+// compartido con el alta.
+import { fetchLocations, type LocationRef } from '@/lib/clients/locations';
+import { CitySelect } from '@/components/clients/CitySelect';
+// F-122 R-28/R-31/R-32 — ⭐ el espejo del Brief hacia `clients` es el sitio EXACTO por
+// el que el marcador cruzó de espacio-generación a espacio-captura (§0 del spec).
+import { stripPlaceholdersFromCapture } from '@/lib/clients/capture-guard';
 // F-119 — (a) seam de versión: los 6 `INSERT` de esta superficie derivan su `version` de
 // `max(version)+1` por `(client_id, tabla)` en vez del literal `1`. HOY es un no-op
 // demostrable (estas ramas sólo disparan con la tabla VACÍA para ese cliente ⇒
@@ -41,6 +48,10 @@ import {
 // F-121 (R-17/R-18) — el prefill deja de copiar token-códigos: industria y los DOS
 // campos de siempre del diagnóstico pasan por los seams de etiquetas. No se amplía
 // ninguna fuente (GATE-D1 pendiente).
+// F-122 R-14/R-15 — y ahora TODA presentación textual de la industria de esta pantalla
+// pasa por acá. Tenía CUATRO consumidores del código crudo (E-8 a/b/c), y de tres de
+// ellos —las plantillas de los `SuggestButton`— salieron los defectos que CL-113
+// atribuía al modelo: son plantillas hardcodeadas, no llaman a ninguna API.
 import { toIndustryLabel } from '@/lib/clients/industry-label';
 import {
   buildDigitalPresenceSentence,
@@ -50,6 +61,8 @@ import {
 import { detectTestResidueFields } from '@/lib/onboarding/assembly-guard';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+// F-122 R-20 — puntero a la ficha del cliente, donde vive `ClientForm` (E-10).
+import Link from 'next/link';
 import { toast } from 'sonner';
 import { Icons } from '@/components/icons';
 
@@ -148,12 +161,8 @@ interface DiagnosticData {
   recommended_tier: string | null;
 }
 
-interface LocationRef {
-  city: string;
-  county: string;
-  zip_codes: string[];
-  region: string;
-}
+// ⤫ F-122 R-22 — `LocationRef` se declara UNA sola vez, en
+// `src/lib/clients/locations.ts`, junto con la consulta y la forma de la opción.
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -578,13 +587,11 @@ export default function BriefPage() {
     if (d) setDiagnostic(d as DiagnosticData);
 
     // Locations (California)
-    const { data: locs } = await supabase
-      .from('locations_reference')
-      .select('city, county, zip_codes, region')
-      .eq('state', 'CA')
-      .order('region')
-      .order('city');
-    if (locs) setLocations(locs as LocationRef[]);
+    // ⤫ F-122 R-22 — la consulta se mudó a `src/lib/clients/locations.ts`: la
+    // declaración ÚNICA del catálogo (tabla, proyección, filtro, orden, forma de
+    // opción) que ahora comparten el Brief y el alta. Misma proyección, mismo
+    // filtro y mismo orden que acá — sólo dejó de estar declarada dos veces.
+    setLocations(await fetchLocations(supabase));
 
     // Brief
     const { data: b } = await supabase
@@ -761,10 +768,30 @@ export default function BriefPage() {
   // F-084 R-07/R-08 — espejar city/state del brief a `clients` (home canónico,
   // DT-1), además del narrativo en `briefs.content`. Solo escribe valores no
   // vacíos para no sobrescribir con blancos un valor existente.
+  //
+  // ⭐ F-122 R-28/R-31/R-32 (DT-03 b · H-4) — **el guard vive DENTRO de esta función,
+  // no en sus dos call-sites** (`handleApproveBrief` y `handleSaveDraft`): así los dos
+  // quedan cubiertos por construcción y hay **un solo punto** que el source-guard de
+  // R-34 puede exigir.
+  //
+  // Éste es el sitio por el que entró el defecto: `briefs.content.city = "[PENDIENTE]"`
+  // es degradación honesta LEGÍTIMA (F-104/F-106) y nadie la toca — lo que se prohíbe es
+  // que ese valor **cruce** a `clients`, donde se vuelve un hecho falso del home
+  // canónico y corrompe el guard anti-fabricación de F-098.
+  //
+  // Se bloquea el VALOR, no al OPERADOR (R-31): el patch pierde la clave, se avisa, y
+  // guardar/aprobar siguen su curso.
   const mirrorCityStateToClient = async () => {
-    const patch: Record<string, string> = {};
+    let patch: Record<string, string> = {};
     if (briefFields.city) patch.city = briefFields.city;
     if (briefFields.state) patch.state = briefFields.state;
+    const guarded = stripPlaceholdersFromCapture(patch);
+    patch = guarded.patch as Record<string, string>;
+    if (guarded.blocked.length > 0) {
+      toast.warning(
+        `No se copió al cliente: ${guarded.blocked.join(', ')} — el brief lo marcó como pendiente.`
+      );
+    }
     if (Object.keys(patch).length === 0) return;
     await supabase.from('clients').update(patch).eq('id', clientId);
   };
@@ -1268,12 +1295,19 @@ export default function BriefPage() {
   }
 
   const clientName = (client?.business_name as string) || clientId;
-  const ind = (client?.industry as string) || '';
+  // ⤫ F-122 R-14 — `const ind = (client?.industry as string) || ''` era el código CRUDO
+  // que alimentaba los otros cuatro sitios de esta pantalla. Ahora la industria se
+  // resuelve UNA vez por la declaración única, y `null` significa **ausencia de
+  // industria declarada** (F-121 R-15): cada superficie la expresa como ausencia, nunca
+  // como hueco, `undefined` ni token (R-15).
+  const ind = toIndustryLabel((client?.industry as string) || '');
 
   return (
     <PageContainer
       pageTitle={`Onboarding — ${clientName}`}
-      pageDescription={`${ind.replace(/_/g, ' ')} · Brief, Persona y OFV`}
+      pageDescription={
+        ind ? `${ind} · Brief, Persona y OFV` : 'Brief, Persona y OFV'
+      }
     >
       <div className='flex flex-1 flex-col gap-4 p-4 md:px-6'>
         <div className='text-muted-foreground mb-1 flex gap-2 text-xs'>
@@ -1327,27 +1361,43 @@ export default function BriefPage() {
                   />
                 </Field>
                 <Field label='Industria' dot='auto'>
+                  {/* F-122 R-19 — SIGUE `readOnly` a propósito: la industria es dato del
+                      cliente. Hacerla editable acá crearía DOS fuentes de verdad sobre el
+                      mismo dato, que es exactamente lo que R-08 prohíbe. */}
                   <Input
                     value={briefFields.industry}
                     readOnly
                     className='bg-muted/30'
                   />
+                  {/* F-122 R-20 — y se dice DÓNDE se corrige. Cierra el mismo bucle
+                      abierto que CL-109 nombró: pedirte que apruebes un dato sin
+                      decirte dónde arreglarlo.
+                      ⚠️ Mandato 1 de CL-102 — esta pantalla es el NÚCLEO: el puntero es
+                      un enlace a la ficha, no una superficie nueva acá. */}
+                  {!ind && (
+                    <p className='text-muted-foreground text-xs'>
+                      Sin industria declarada — se corrige en{' '}
+                      <Link
+                        href={`/clients/${clientId}`}
+                        className='underline underline-offset-2'
+                      >
+                        la ficha del cliente
+                      </Link>
+                      .
+                    </p>
+                  )}
                 </Field>
               </div>
               <div className='grid grid-cols-3 gap-3'>
                 <Field label='Ciudad' dot='manual'>
-                  <select
-                    className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                  {/* ⤫ F-122 R-21/R-22/R-23 — el `<select>` local se reemplaza por el
+                      selector COMPARTIDO con el alta, alimentado por la declaración
+                      única del catálogo. Mismas opciones, mismo orden, misma forma. */}
+                  <CitySelect
                     value={briefFields.city}
+                    locations={locations}
                     onChange={(e) => updateBrief('city', e.target.value)}
-                  >
-                    <option value=''>Seleccionar...</option>
-                    {locations.map((loc) => (
-                      <option key={loc.city} value={loc.city}>
-                        {loc.city} ({loc.county})
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </Field>
                 <Field label='Estado' dot='auto'>
                   <Input
@@ -1439,7 +1489,9 @@ export default function BriefPage() {
                   onClick={() =>
                     updateBrief(
                       'main_problem',
-                      `Sin presencia digital — los clientes no pueden encontrar ${briefFields.business_name || 'el negocio'} en Google para ${ind.replace(/_/g, ' ')} en ${briefFields.city || 'la zona'}`
+                      // F-122 R-15 — sin industria declarada, se OMITE la cláusula
+                      // «para …»: ni hueco, ni `undefined`, ni el token.
+                      `Sin presencia digital — los clientes no pueden encontrar ${briefFields.business_name || 'el negocio'} en Google${ind ? ` para ${ind}` : ''} en ${briefFields.city || 'la zona'}`
                     )
                   }
                 />
@@ -1598,7 +1650,14 @@ export default function BriefPage() {
                   onClick={() =>
                     updateBrief(
                       'search_behavior',
-                      `Busca en Google: ${ind.replace(/_/g, ' ')} near me, ${ind.replace(/_/g, ' ')} rental ${briefFields.city}. Decide por: disponibilidad rápida + precio + reviews.`
+                      // F-122 R-15 — sin industria declarada NO hay términos de
+                      // búsqueda que declarar: se OMITE la cláusula entera (no se
+                      // inventa un sustituto). Y la ranura de ciudad recibe el mismo
+                      // fallback que ya tienen sus dos hermanas — se corrige porque se
+                      // está editando esta línea, no se rediseña la plantilla (CL-113).
+                      ind
+                        ? `Busca en Google: ${ind} near me, ${ind} rental ${briefFields.city || 'su zona'}. Decide por: disponibilidad rápida + precio + reviews.`
+                        : 'Decide por: disponibilidad rápida + precio + reviews.'
                     )
                   }
                 />
@@ -1674,7 +1733,10 @@ export default function BriefPage() {
                     onClick={() =>
                       updateBrief(
                         'goal_12m',
-                        `Top 3 en Google Maps para ${ind.replace(/_/g, ' ')} en ${briefFields.city || 'su zona'} + 15-20 leads/mes`
+                        // F-122 R-15 — sin industria declarada, se OMITE la cláusula
+                        // «para …». Ésta es la plantilla que produjo el
+                        // "Top 3 en Google Maps para other en [PENDIENTE]" de Clara V.
+                        `Top 3 en Google Maps${ind ? ` para ${ind}` : ''} en ${briefFields.city || 'su zona'} + 15-20 leads/mes`
                       )
                     }
                   />

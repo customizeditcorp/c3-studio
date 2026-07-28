@@ -7,6 +7,10 @@ import PageContainer from '@/components/layout/page-container';
 import { useUser } from '@/contexts/UserContext';
 import { createClient } from '@/lib/supabase/client';
 import { useEffect, useState } from 'react';
+// F-122 R-14/R-18 — este sitio leía `clients.industry` CRUDO y lo componía dentro
+// de un string. La declaración única de F-121 es la fuente; la ausencia se expresa como
+// ausencia, nunca como token ni como hueco (R-15).
+import { toIndustryLabel } from '@/lib/clients/industry-label';
 import { useRouter } from 'next/navigation';
 
 type Client = {
@@ -59,7 +63,13 @@ export default function OnboardingClientPicker({
         .from('clients')
         .select('id, business_name, industry, status, tier, contact_first_name')
         .eq('tenant_id', tenantId)
-        .in('status', ['diagnosed', 'onboarding', 'negotiating', 'active', 'lead'])
+        .in('status', [
+          'diagnosed',
+          'onboarding',
+          'negotiating',
+          'active',
+          'lead'
+        ])
         .order('created_at', { ascending: false });
       setClients(data || []);
       setLoading(false);
@@ -80,7 +90,8 @@ export default function OnboardingClientPicker({
     return (
       <PageContainer pageTitle={pageTitle} pageDescription={pageDescription}>
         <p className='text-muted-foreground p-4'>
-          No se pudo resolver tu organización. Completa tu perfil de usuario o vuelve a iniciar sesión.
+          No se pudo resolver tu organización. Completa tu perfil de usuario o
+          vuelve a iniciar sesión.
         </p>
       </PageContainer>
     );
@@ -91,7 +102,7 @@ export default function OnboardingClientPicker({
       <div className='space-y-6 p-4 md:px-6'>
         {clients.length === 0 ? (
           <Card>
-            <CardContent className='py-10 text-center text-muted-foreground'>
+            <CardContent className='text-muted-foreground py-10 text-center'>
               {emptyHint}{' '}
               <Button variant='link' onClick={() => router.push('/diagnostic')}>
                 Crear un diagnóstico
@@ -99,24 +110,28 @@ export default function OnboardingClientPicker({
             </CardContent>
           </Card>
         ) : (
-          <div className='grid gap-3 max-w-2xl'>
+          <div className='grid max-w-2xl gap-3'>
             {clients.map((client) => (
               <Card
                 key={client.id}
-                className='cursor-pointer hover:border-primary transition-colors'
+                className='hover:border-primary cursor-pointer transition-colors'
                 onClick={() => router.push(`${routePrefix}/${client.id}`)}
               >
                 <CardHeader className='pb-2'>
                   <div className='flex items-center justify-between'>
-                    <CardTitle className='text-base'>{client.business_name}</CardTitle>
+                    <CardTitle className='text-base'>
+                      {client.business_name}
+                    </CardTitle>
                     <Badge variant='outline'>
                       {STATUS_LABEL[client.status] || client.status}
                     </Badge>
                   </div>
                 </CardHeader>
                 <CardContent className='pt-0'>
-                  <p className='text-sm text-muted-foreground capitalize'>
-                    {client.industry} · {client.contact_first_name || 'Sin contacto'}
+                  <p className='text-muted-foreground text-sm capitalize'>
+                    {toIndustryLabel(client.industry) ??
+                      'Sin industria declarada'}{' '}
+                    · {client.contact_first_name || 'Sin contacto'}
                   </p>
                 </CardContent>
               </Card>

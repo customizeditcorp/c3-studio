@@ -17,23 +17,37 @@ import { logActivity } from '@/lib/activity';
 // F-121 R-14/DT-05 — la tabla industria→etiqueta se declara UNA sola vez
 // (`src/lib/clients/industry-label.ts`). Esta era la copia 1 de 2.
 import { INDUSTRIES } from '@/lib/clients/industry-label';
+// F-122 R-09/R-10/R-11/R-13 (Slice A) — «Otro» exige el rubro real, en las DOS
+// superficies que consumen `INDUSTRIES` (H-5: este form se monta en 2 rutas).
+import {
+  validateFreeIndustry,
+  resolveIndustryForPersist
+} from '@/lib/clients/industry-input';
+// F-122 R-28/R-33 (Slice C) — el marcador no es un dato de captura.
+import {
+  isCapturePlaceholder,
+  stripPlaceholdersFromCapture
+} from '@/lib/clients/capture-guard';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import type { PostgrestError } from '@supabase/supabase-js';
 
-function emptyToNull(value: string): string | null {
-  const t = value.trim();
+function emptyToNull(value: string | undefined): string | null {
+  const t = (value ?? '').trim();
   return t === '' ? null : t;
 }
 
+// F-122 R-28 — el payload se arma sobre el objeto YA pasado por el guard de captura, del
+// que una clave bloqueada puede estar AUSENTE. Los accesos toleran la ausencia: bloquear
+// el valor no puede convertirse en un crash que bloquee al OPERADOR (R-31).
 function clientInsertPayload(
-  formData: ClientFormData,
+  formData: Partial<ClientFormData>,
   tenantId: string,
   userId: string
 ) {
   return {
-    business_name: formData.business_name.trim(),
-    industry: formData.industry.trim(),
+    business_name: (formData.business_name ?? '').trim(),
+    industry: (formData.industry ?? '').trim(),
     contact_first_name: emptyToNull(formData.contact_first_name),
     contact_last_name: emptyToNull(formData.contact_last_name),
     phone: emptyToNull(formData.phone),
@@ -98,7 +112,27 @@ export default function ClientForm({
     disc_profile: initialData?.disc_profile || '',
     notes: initialData?.notes || ''
   });
+  // ⭐ F-122 H-6 — el rubro libre vive FUERA de `formData` a propósito: el `update` hace
+  // `{...formData}` con spread, así que una clave nueva del estado local entraría a
+  // `clients` automáticamente. Se resuelve a `industry` antes del write.
+  const [industryOther, setIndustryOther] = useState('');
   const [loading, setLoading] = useState(false);
+
+  /**
+   * F-122 R-33 — ninguna columna de captura acepta el marcador tecleado, **incluido el
+   * rubro libre que R-09 crea**. Se bloquea el VALOR antes del write; el operador ve por
+   * qué. (La ciudad no se edita en esta superficie.)
+   */
+  const capturaConMarcador = (): boolean =>
+    [
+      formData.business_name,
+      formData.contact_first_name,
+      formData.contact_last_name,
+      formData.phone,
+      formData.email,
+      formData.notes,
+      industryOther
+    ].some((v) => isCapturePlaceholder(v));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,13 +141,44 @@ export default function ClientForm({
       return;
     }
 
+    // F-122 R-10/R-07 — con «Otro», el rubro libre es obligatorio y válido; `other`
+    // NUNCA se persiste como valor de `clients.industry`.
+    const resolvedIndustry = resolveIndustryForPersist(
+      formData.industry,
+      industryOther
+    );
+    if (!resolvedIndustry) {
+      toast.error(
+        'Elegí una industria — con «Otro», escribí el rubro del negocio.'
+      );
+      return;
+    }
+    // F-122 R-33 — el marcador tecleado no entra a una columna de captura.
+    if (capturaConMarcador()) {
+      toast.error(
+        'Un campo tiene un marcador de pendiente como valor. Completalo o dejalo vacío.'
+      );
+      return;
+    }
+
+    // F-122 R-28/R-34 — el patch de captura pasa por el guard antes de tocar `clients`.
+    const { patch: formDataSafe, blocked } = stripPlaceholdersFromCapture({
+      ...formData,
+      industry: resolvedIndustry
+    });
+    if (blocked.length > 0) {
+      toast.warning(
+        `No se guardó en el cliente: ${blocked.join(', ')} (marcador de pendiente)`
+      );
+    }
+
     setLoading(true);
     try {
       if (isEditing) {
         const { error } = await supabase
           .from('clients')
           .update({
-            ...formData,
+            ...formDataSafe,
             updated_at: new Date().toISOString()
           })
           .eq('id', initialData.id!)
@@ -136,7 +201,7 @@ export default function ClientForm({
       } else {
         const { data, error } = await supabase
           .from('clients')
-          .insert(clientInsertPayload(formData, tenantId, user.id))
+          .insert(clientInsertPayload(formDataSafe, tenantId, user.id))
           .select()
           .single();
 
@@ -203,6 +268,30 @@ export default function ClientForm({
               ))}
             </SelectContent>
           </Select>
+          {/* F-122 R-09/R-10 — «Otro» EXIGE el rubro real (`required` + submit).
+              `other` = ausencia de industria declarada (F-121 R-15), no un rubro. */}
+          {formData.industry === 'other' && (
+            <div className='space-y-1'>
+              <Label htmlFor='industry_other'>
+                ¿Cuál es el rubro? <span className='text-destructive'>*</span>
+              </Label>
+              <Input
+                id='industry_other'
+                value={industryOther}
+                onChange={(e) => setIndustryOther(e.target.value)}
+                placeholder='Decoración de interiores'
+                required
+              />
+              {industryOther.trim().length > 0 &&
+                !validateFreeIndustry(industryOther).ok && (
+                  <p className='text-destructive text-xs'>
+                    {validateFreeIndustry(industryOther).reason === 'collision'
+                      ? 'Esa categoría ya existe en la lista: elegila arriba.'
+                      : 'Escribí el rubro real del negocio.'}
+                  </p>
+                )}
+            </div>
+          )}
         </div>
 
         <div className='space-y-2'>

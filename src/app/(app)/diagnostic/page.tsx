@@ -21,6 +21,21 @@ import { logActivity } from '@/lib/activity';
 // F-121 R-14/DT-05 — la tabla industria→etiqueta se declara UNA sola vez
 // (`src/lib/clients/industry-label.ts`). Esta era la copia 2 de 2.
 import { INDUSTRIES } from '@/lib/clients/industry-label';
+// F-122 R-09/R-10/R-11/R-13 (Slice A) — «Otro» deja de ser un sumidero: exige el rubro
+// libre y lo resuelve a `industry` ANTES del insert con spread (H-6).
+import {
+  validateFreeIndustry,
+  resolveIndustryForPersist
+} from '@/lib/clients/industry-input';
+// F-122 R-28/R-33 (Slice C) — el marcador no es un dato de captura.
+import {
+  isCapturePlaceholder,
+  stripPlaceholdersFromCapture
+} from '@/lib/clients/capture-guard';
+// F-122 R-21/R-22/R-23 (Slice B) — la ciudad se elige del catálogo, en las DOS
+// superficies: el `<input>` libre del alta era la puerta que aceptaba cualquier string.
+import { CitySelect } from '@/components/clients/CitySelect';
+import { fetchLocations, type LocationRef } from '@/lib/clients/locations';
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
@@ -210,6 +225,12 @@ export default function DiagnosticPage() {
     disc_profile: '',
     notes: ''
   });
+  // ⭐ F-122 H-6 — el rubro libre vive FUERA de `newClientData` a propósito: el insert
+  // hace `{...newClientData}` con spread, así que una clave nueva del estado local
+  // entraría a `clients` automáticamente. Se resuelve a `industry` antes del write.
+  const [industryOther, setIndustryOther] = useState('');
+  // F-122 R-21/R-22 — catálogo de ciudades, desde la declaración única compartida.
+  const [locations, setLocations] = useState<LocationRef[]>([]);
 
   // Step 2 - Digital presence
   const [googlePresence, setGooglePresence] = useState('');
@@ -251,6 +272,22 @@ export default function DiagnosticPage() {
         setExistingClients(data);
       });
   }, [tenantId, userLoading, supabase]);
+
+  // F-122 R-21/R-22 — el catálogo de ciudades sale de la MISMA declaración que consume
+  // el Brief (`src/lib/clients/locations.ts`): misma tabla, mismos filtros, mismo orden,
+  // misma forma de opción. Dos consultas equivalentes-pero-separadas reproducirían la
+  // clase de fallo que DT-05 de F-121 eliminó, en otro dato.
+  useEffect(() => {
+    let vivo = true;
+    fetchLocations(supabase)
+      .then((rows) => {
+        if (vivo) setLocations(rows);
+      })
+      .catch((e) => console.error('Error loading city catalog:', e));
+    return () => {
+      vivo = false;
+    };
+  }, [supabase]);
 
   // Calculate tier using all signals: revenue + google presence + digital health
   const tierResult =
@@ -301,10 +338,35 @@ export default function DiagnosticPage() {
 
       // Create client if new
       if (clientMode === 'new') {
+        // ⭐ F-122 H-6/R-07/R-11 — el rubro se resuelve a `industry` ANTES del insert:
+        // el spread llevaría cualquier clave nueva del estado local a la tabla, y `other`
+        // NUNCA se persiste (R-07). Si no hay valor resoluble, el guardado no procede
+        // (R-10) — `canProceed()` ya lo impide, esto es el cierre del write-path.
+        const resolvedIndustry = resolveIndustryForPersist(
+          newClientData.industry,
+          industryOther
+        );
+        if (!resolvedIndustry) {
+          throw new Error(
+            'Elegí una industria — con «Otro», escribí el rubro del negocio.'
+          );
+        }
+        // F-122 R-28/R-34 — el patch de captura pasa por el guard: el marcador no puede
+        // llegar a `clients` por ningún write-path. Se bloquea el VALOR, no al OPERADOR.
+        const { patch: newClientDataSafe, blocked } =
+          stripPlaceholdersFromCapture({
+            ...newClientData,
+            industry: resolvedIndustry
+          });
+        if (blocked.length > 0) {
+          toast.warning(
+            `No se guardó en el cliente: ${blocked.join(', ')} (marcador de pendiente)`
+          );
+        }
         const { data: newClient, error: clientError } = await supabase
           .from('clients')
           .insert({
-            ...newClientData,
+            ...newClientDataSafe,
             tenant_id: resolvedTenantId,
             status: 'lead'
           })
@@ -406,6 +468,7 @@ export default function DiagnosticPage() {
       disc_profile: '',
       notes: ''
     });
+    setIndustryOther('');
     setGooglePresence('');
     setLicenseStatus('');
     setDigitalHealth('');
@@ -481,10 +544,35 @@ export default function DiagnosticPage() {
     }
   };
 
+  /**
+   * F-122 R-33 — ninguna columna de captura acepta el marcador **tecleado**. La ciudad
+   * ya no es texto libre (R-21) y `industry` se resuelve por el seam; quedan los campos
+   * de entrada libre de esta pantalla, **incluido el rubro libre que R-09 crea**: abrir
+   * una puerta mientras se cierra otra sería el defecto de F-122 sobre sí misma.
+   */
+  const capturaConMarcador = (): boolean =>
+    [
+      newClientData.business_name,
+      newClientData.state,
+      newClientData.contact_first_name,
+      newClientData.phone,
+      newClientData.email,
+      newClientData.notes,
+      industryOther
+    ].some((v) => isCapturePlaceholder(v));
+
   const canProceed = () => {
     if (step === 1) {
       if (clientMode === 'existing') return !!selectedClientId;
-      return !!newClientData.business_name && !!newClientData.industry;
+      // F-122 R-10 — con «Otro», el rubro libre es OBLIGATORIO y válido. Sin esto,
+      // R-09 es un campo opcional que nadie llena y Clara V vuelve a pasar.
+      return (
+        !!newClientData.business_name &&
+        !!newClientData.industry &&
+        resolveIndustryForPersist(newClientData.industry, industryOther) !==
+          null &&
+        !capturaConMarcador()
+      );
     }
     if (step === 2)
       return !!googlePresence && !!licenseStatus && !!digitalHealth;
@@ -616,6 +704,30 @@ export default function DiagnosticPage() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {/* F-122 R-09/R-10 — «Otro» EXIGE el rubro real. `other` significa
+                        «ninguna categoría aplica» (F-121 R-15) y no se persiste (R-07). */}
+                    {newClientData.industry === 'other' && (
+                      <div className='space-y-1'>
+                        <Label>
+                          ¿Cuál es el rubro?{' '}
+                          <span className='text-destructive'>*</span>
+                        </Label>
+                        <Input
+                          value={industryOther}
+                          onChange={(e) => setIndustryOther(e.target.value)}
+                          placeholder='Decoración de interiores'
+                        />
+                        {industryOther.trim().length > 0 &&
+                          !validateFreeIndustry(industryOther).ok && (
+                            <p className='text-destructive text-xs'>
+                              {validateFreeIndustry(industryOther).reason ===
+                              'collision'
+                                ? 'Esa categoría ya existe en la lista: elegila arriba.'
+                                : 'Escribí el rubro real del negocio.'}
+                            </p>
+                          )}
+                      </div>
+                    )}
                   </div>
                   <div className='space-y-2'>
                     <Label>Nombre del dueño</Label>
@@ -658,17 +770,20 @@ export default function DiagnosticPage() {
                     />
                   </div>
                   {/* F-084 R-06 — city/state → persisten a clients (home canónico) */}
+                  {/* ⤫ F-122 R-21 — el `<input>` libre de ciudad se reemplaza por el
+                      selector COMPARTIDO con el Brief. Agregar ciudades sin unificar no
+                      alcanzaba: esta era la puerta que aceptaba cualquier string. */}
                   <div className='space-y-2'>
                     <Label>Ciudad</Label>
-                    <Input
+                    <CitySelect
                       value={newClientData.city}
+                      locations={locations}
                       onChange={(e) =>
                         setNewClientData((p) => ({
                           ...p,
                           city: e.target.value
                         }))
                       }
-                      placeholder='Santa Maria'
                     />
                   </div>
                   <div className='space-y-2'>

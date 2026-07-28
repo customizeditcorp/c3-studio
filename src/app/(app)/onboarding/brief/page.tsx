@@ -6,6 +6,10 @@ import PageContainer from '@/components/layout/page-container';
 import { useUser } from '@/contexts/UserContext';
 import { createClient } from '@/lib/supabase/client';
 import { useEffect, useState } from 'react';
+// F-122 R-14/R-18 — este sitio leía `clients.industry` CRUDO y lo componía dentro
+// de un string. La declaración única de F-121 es la fuente; la ausencia se expresa como
+// ausencia, nunca como token ni como hueco (R-15).
+import { toIndustryLabel } from '@/lib/clients/industry-label';
 import { useRouter } from 'next/navigation';
 
 type Client = {
@@ -58,8 +62,9 @@ export default function OnboardingBriefListPage() {
       <div className='space-y-6'>
         <div>
           <h1 className='text-2xl font-bold'>Brief & Persona</h1>
-          <p className='text-muted-foreground text-sm mt-1'>
-            Selecciona un cliente para generar su Brief, Buyer Persona y Oferta de Valor.
+          <p className='text-muted-foreground mt-1 text-sm'>
+            Selecciona un cliente para generar su Brief, Buyer Persona y Oferta
+            de Valor.
           </p>
         </div>
 
@@ -67,13 +72,14 @@ export default function OnboardingBriefListPage() {
           <p className='text-muted-foreground'>Cargando clientes...</p>
         ) : !tenantId ? (
           <Card>
-            <CardContent className='py-10 text-center text-muted-foreground'>
-              No hay organización asociada a tu perfil. Contacta a un administrador.
+            <CardContent className='text-muted-foreground py-10 text-center'>
+              No hay organización asociada a tu perfil. Contacta a un
+              administrador.
             </CardContent>
           </Card>
         ) : clients.length === 0 ? (
           <Card>
-            <CardContent className='py-10 text-center text-muted-foreground'>
+            <CardContent className='text-muted-foreground py-10 text-center'>
               No hay clientes en onboarding aún.{' '}
               <Button variant='link' onClick={() => router.push('/diagnostic')}>
                 Crear un diagnóstico
@@ -85,12 +91,14 @@ export default function OnboardingBriefListPage() {
             {clients.map((client) => (
               <Card
                 key={client.id}
-                className='cursor-pointer hover:border-primary transition-colors'
+                className='hover:border-primary cursor-pointer transition-colors'
                 onClick={() => router.push(`/onboarding/brief/${client.id}`)}
               >
                 <CardHeader className='pb-2'>
                   <div className='flex items-center justify-between'>
-                    <CardTitle className='text-base'>{client.business_name}</CardTitle>
+                    <CardTitle className='text-base'>
+                      {client.business_name}
+                    </CardTitle>
                     <div className='flex gap-2'>
                       <Badge variant='outline'>
                         {STATUS_LABEL[client.status] || client.status}
@@ -104,8 +112,10 @@ export default function OnboardingBriefListPage() {
                   </div>
                 </CardHeader>
                 <CardContent className='pt-0'>
-                  <p className='text-sm text-muted-foreground capitalize'>
-                    {client.industry} · {client.contact_first_name || 'Sin contacto'}
+                  <p className='text-muted-foreground text-sm capitalize'>
+                    {toIndustryLabel(client.industry) ??
+                      'Sin industria declarada'}{' '}
+                    · {client.contact_first_name || 'Sin contacto'}
                   </p>
                 </CardContent>
               </Card>
