@@ -41,6 +41,13 @@ const read = (rel: string) => readFileSync(resolve(REPO, rel), 'utf8');
 const stripComments = (src: string): string =>
   src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
+import {
+  buildTemplate,
+  literalParts,
+  templateFor,
+  variantFor
+} from '../../src/lib/onboarding/field-templates.ts';
+
 const BRIEF_REL = 'src/app/(app)/onboarding/brief/[clientId]/page.tsx';
 const BRIEF = read(BRIEF_REL);
 const BRIEF_CODE = stripComments(BRIEF);
@@ -111,40 +118,18 @@ test('T-03 ⭐⭐ R-15 (b) el `pageDescription` degrada honesto: ni token, ni hu
  * `updateBrief` con `e.target.value`: ése se descarta, no es una plantilla.
  */
 function plantilla(clave: string): string {
-  const marca = `updateBrief(`;
-  const candidatas: string[] = [];
-  for (
-    let i = BRIEF_CODE.indexOf(marca);
-    i >= 0;
-    i = BRIEF_CODE.indexOf(marca, i + 1)
-  ) {
-    // Escaneo con paréntesis balanceados: el argumento puede contener `)`.
-    let nivel = 0;
-    let fin = -1;
-    for (let j = i + marca.length - 1; j < BRIEF_CODE.length; j++) {
-      const ch = BRIEF_CODE[j];
-      if (ch === '(') nivel++;
-      else if (ch === ')') {
-        nivel--;
-        if (nivel === 0) {
-          fin = j;
-          break;
-        }
-      }
-    }
-    assert.ok(fin > 0, 'llamada a `updateBrief` sin cerrar');
-    const args = BRIEF_CODE.slice(i + marca.length, fin).trim();
-    if (!args.startsWith(`'${clave}'`)) continue;
-    const expr = args.slice(`'${clave}'`.length).replace(/^\s*,/, '').trim();
-    if (/^e\.target\.value$/.test(expr) || expr.length === 0) continue;
-    candidatas.push(expr);
-  }
-  assert.equal(
-    candidatas.length,
-    1,
-    `se esperaba UNA plantilla para \`${clave}\`, se hallaron ${candidatas.length}`
+  // ⚠️ **[F-123 · RUPTURA MECÁNICA DECLARADA — re-anclaje, NO debilitamiento.]**
+  // Hasta F-122 las plantillas vivían INLINE en `page.tsx` y este helper las extraía de
+  // ahí con un escaneo de paréntesis. **F-123 las movió al catálogo único**
+  // (`src/lib/onboarding/field-templates.ts`, R-07/R-08) porque la UI las presentaba como
+  // inferencia del modelo y no lo eran. El HECHO que estos 5 tests miden —que las 3
+  // plantillas emiten la ETIQUETA y nunca el código, y que sin industria no queda token,
+  // hueco ni `undefined`— **no cambió**: cambió de archivo. Se re-ancla la FUENTE y se
+  // conservan los 5 asserts intactos.
+  const partes = literalParts(
+    variantFor(templateFor(clave)!, { industry_label: 'X' })
   );
-  return candidatas[0];
+  return JSON.stringify(partes.join('«RANURA»'));
 }
 
 /** La evalúa con un `ind` y unos `briefFields` dados — sin montar React. */
@@ -153,10 +138,15 @@ function evaluarPlantilla(
   ind: string | null,
   briefFields: Record<string, string>
 ): string {
-  return new Function('ind', 'briefFields', `return (${plantilla(clave)});`)(
-    ind,
-    briefFields
-  ) as string;
+  // [F-123 · re-anclaje] Antes se evaluaba la expresión extraída de `page.tsx` con
+  // `new Function`. Ahora se construye por **el mismo camino que corre en producción**
+  // (`buildTemplate` sobre el catálogo), que es un anclaje MÁS fuerte, no más débil: ya no
+  // se mide una expresión parseada del archivo sino el productor real del texto.
+  return buildTemplate(templateFor(clave)!, {
+    business_name: briefFields.business_name,
+    industry_label: ind,
+    city: briefFields.city
+  });
 }
 
 const CLAVES = ['main_problem', 'search_behavior', 'goal_12m'];
