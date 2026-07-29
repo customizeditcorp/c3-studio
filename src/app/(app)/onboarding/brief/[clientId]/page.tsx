@@ -63,6 +63,15 @@ import {
 } from '@/lib/onboarding/diagnostic-labels';
 // F-121 (R-27/R-28) — aviso ADVISORY de residuo de prueba en campos manuales.
 import { detectTestResidueFields } from '@/lib/onboarding/assembly-guard';
+// F-123 (R-07/R-08) — las plantillas de los botones se declaran UNA vez, fuera de esta
+// pantalla. Acá no queda ni un literal de plantilla escrito en línea.
+import {
+  TEMPLATE_BUTTONS,
+  buildTemplate,
+  detectTemplateFields,
+  templateFor,
+  type TemplateCtx
+} from '@/lib/onboarding/field-templates';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 // F-122 R-20 — puntero a la ficha del cliente, donde vive `ClientForm` (E-10).
@@ -297,12 +306,24 @@ function TestResidueNotice({ fields }: { fields: object }) {
   );
 }
 
-function FieldDot({ type }: { type: 'auto' | 'manual' | 'ai' | 'diag' }) {
+/**
+ * ⭐ **F-123 R-14 — `tpl` es una procedencia más, y la más honesta de todas.**
+ *
+ * `ai` significa «esto lo infirió el modelo para este cliente». Cuando el texto salió de
+ * una plantilla del propio archivo, eso es **falso**, y era falso en **8 de 18 briefs de
+ * producción** (6 de ellos ya `approved`). `tpl` dice la verdad.
+ */
+function FieldDot({
+  type
+}: {
+  type: 'auto' | 'manual' | 'ai' | 'diag' | 'tpl';
+}) {
   const colors = {
     auto: 'bg-green-500',
     manual: 'bg-amber-500',
     ai: 'bg-blue-500',
-    diag: 'bg-purple-500'
+    diag: 'bg-purple-500',
+    tpl: 'bg-slate-400'
   };
   return (
     <span className={`inline-block h-1.5 w-1.5 rounded-full ${colors[type]}`} />
@@ -322,9 +343,69 @@ function SuggestButton({
       onClick={onClick}
       className='mt-1 flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800'
     >
-      <Icons.sparkles className='h-3 w-3' />
+      {/* ⭐ F-123 R-12 — fuera `sparkles`. Este botón NO llama a ningún modelo: pega un
+          texto de ejemplo del catálogo. El ícono de documento dice eso; el de chispas
+          afirmaba una inferencia que nunca ocurrió. Ícono ya existente, no se agrega
+          ninguno. */}
+      <Icons.post className='h-3 w-3' />
       {label}
     </button>
+  );
+}
+
+/**
+ * ⭐⭐⭐ **F-123 (R-18..R-21) — el aviso de PROCEDENCIA, en el momento de APROBAR.**
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────
+ * POR QUÉ EN LA APROBACIÓN Y NO SÓLO AL INSERTAR
+ * ─────────────────────────────────────────────────────────────────────────────────
+ * El dato lo decidió: de los **8 briefs contaminados de producción, 6 estaban `approved`**.
+ * El punto de fuga **no es la inserción, es la aprobación** — y es esperable, porque el
+ * ícono de chispas decía «lo generó la IA», así que revisar ese texto **no era el trabajo
+ * del humano**. Corregir sólo el ícono habría dejado pasar los briefs que ya lo tienen.
+ *
+ * **Avisa, NO bloquea (DT-02, decisión del operador):** cero `disabled`, cero `onClick`,
+ * cero escrituras, **cero mutación de valores**. El operador pidió explícitamente *«no
+ * cambiar todavía la autoridad de aprobación en este frente»* ⇒ `assessApproval` no se toca.
+ *
+ * ⭐ **R-21 — el aviso DECLARA EL LÍMITE DE SU PROPIA MEDICIÓN.** Las plantillas fijas se
+ * reconocen por igualdad exacta; las parametrizadas, por sus segmentos literales en orden.
+ * **Un texto muy editado puede dejar de reconocerse, y el aviso lo dice.** No se compensa
+ * con matching difuso: un falso rojo enseña a ignorar el aviso, y ahí el guard muere.
+ *
+ * Sin detección ⇒ `return null` ⇒ **delta visual CERO** (R-20, mismo patrón que
+ * `TestResidueNotice` y `GenerationSourceNotice`).
+ */
+function TemplateProvenanceNotice({
+  fields,
+  ctx
+}: {
+  fields: object;
+  ctx: TemplateCtx;
+}) {
+  const hits = detectTemplateFields(fields, ctx);
+  if (hits.length === 0) return null;
+  return (
+    <div className='rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700'>
+      <span className='font-medium'>
+        {hits.length === 1
+          ? 'Un campo tiene texto de EJEMPLO, no generado por el modelo.'
+          : `${hits.length} campos tienen texto de EJEMPLO, no generado por el modelo.`}
+      </span>{' '}
+      {hits.map((h) => (
+        <code key={h.field} className='mr-1'>
+          {h.field}
+        </code>
+      ))}
+      — ese texto lo pegó un botón de plantilla de esta pantalla, no lo infirió
+      la IA a partir de este cliente. Convendría editarlo antes de aprobar. No
+      se modifica ni se borra nada automáticamente: la corrección es tuya.{' '}
+      <span className='text-slate-500'>
+        La detección reconoce las plantillas sin editar y las editadas en sus
+        partes variables; un texto muy retocado puede no reconocerse, así que
+        esta lista puede quedarse corta.
+      </span>
+    </div>
   );
 }
 
@@ -359,7 +440,7 @@ function Field({
   hint
 }: {
   label: string;
-  dot: 'auto' | 'manual' | 'ai' | 'diag';
+  dot: 'auto' | 'manual' | 'ai' | 'diag' | 'tpl';
   children: React.ReactNode;
   hint?: string;
 }) {
@@ -1312,6 +1393,59 @@ export default function BriefPage() {
   // como hueco, `undefined` ni token (R-15).
   const ind = toIndustryLabel((client?.industry as string) || '');
 
+  /**
+   * ⭐ F-123 — el contexto con el que se construyen y se detectan las plantillas. La
+   * industria entra **ya resuelta** por `toIndustryLabel` (R-03): el catálogo nunca ve
+   * `clients.industry` crudo, así que F-122 R-18 no gana un sujeto nuevo que vigilar.
+   */
+  const tplCtx: TemplateCtx = {
+    business_name: briefFields.business_name,
+    industry_label: ind,
+    city: briefFields.city
+  };
+
+  /**
+   * ⭐⭐⭐ **F-123 R-14/R-15 — la procedencia se DERIVA DEL VALOR, no de un flag.**
+   *
+   * Ésta es la decisión que sostiene todo el frente, y vale la pena que quede escrita:
+   * un flag de sesión («este campo lo llenó el botón») habría sido más fácil y **peor**.
+   * Derivar del valor da tres cosas gratis que un flag no puede dar:
+   *
+   *   1. **las 8 filas YA contaminadas quedan señaladas sin tocarlas** — se abre el brief
+   *      y la marca aparece, sin migración, sin `update`, sin escribir una sola fila
+   *      (R-02: la corrección de esos datos es del operador, no del agente);
+   *   2. **la marca se APAGA SOLA** (R-15) cuando el operador edita el campo o cuando el
+   *      modelo lo sobrescribe al generar — sin ninguna llamada de limpieza que alguien
+   *      pueda olvidarse de invocar;
+   *   3. sobrevive a recargar la página, que es donde un flag de sesión se pierde.
+   *
+   * ⚠️ **Sólo los 12 campos alcanzables cambian de criterio.** Los `Field` de Buyer
+   * Persona y OFV **no se tocan**: ahí `ai` es verdad, y borrarlo habría introducido la
+   * **mentira simétrica** — que es exactamente lo que la lectura literal de «quitar
+   * `dot='ai'`» habría provocado sobre los otros 33 campos que llevan esa marca.
+   */
+  const tplHits = detectTemplateFields(briefFields, tplCtx);
+  const provenanceOf = (...keys: string[]): 'ai' | 'tpl' =>
+    keys.some((k) => tplHits.some((h) => h.field === k)) ? 'tpl' : 'ai';
+
+  /** Aplica la plantilla de un campo del catálogo. Cero literales en esta pantalla (R-08). */
+  const applyTemplate = (field: string): void =>
+    updateBrief(
+      field as keyof BriefFields,
+      buildTemplate(templateFor(field)!, tplCtx)
+    );
+
+  /** Aplica TODAS las plantillas de un botón (los de dolores y demografía escriben varias). */
+  const applyButton = (id: string): void => {
+    const btn = TEMPLATE_BUTTONS.find((b) => b.id === id);
+    if (!btn) return;
+    for (const f of btn.fields) applyTemplate(f.field);
+  };
+
+  /** La etiqueta declarada del botón (R-13): vive en el catálogo, no en el JSX. */
+  const btnLabel = (id: string): string =>
+    TEMPLATE_BUTTONS.find((b) => b.id === id)?.label ?? '';
+
   return (
     <PageContainer
       pageTitle={`Onboarding — ${clientName}`}
@@ -1332,6 +1466,11 @@ export default function BriefPage() {
           </span>
           <span className='flex items-center gap-1'>
             <FieldDot type='manual' /> Carlos completa
+          </span>
+          {/* F-123 R-16 — la quinta procedencia. Sin esta entrada, la marca nueva sería
+              un punto de color que nadie sabe leer. */}
+          <span className='flex items-center gap-1'>
+            <FieldDot type='tpl' /> Ejemplo de plantilla
           </span>
         </div>
 
@@ -1488,25 +1627,24 @@ export default function BriefPage() {
                   className='bg-muted/30'
                 />
               </Field>
-              <Field label='Problema principal' dot='ai'>
+              <Field
+                label='Problema principal'
+                dot={provenanceOf('main_problem')}
+              >
                 <Input
                   value={briefFields.main_problem}
                   onChange={(e) => updateBrief('main_problem', e.target.value)}
                   placeholder='Ej: Sin presencia digital'
                 />
                 <SuggestButton
-                  label='Sugerir problema'
-                  onClick={() =>
-                    updateBrief(
-                      'main_problem',
-                      // F-122 R-15 — sin industria declarada, se OMITE la cláusula
-                      // «para …»: ni hueco, ni `undefined`, ni el token.
-                      `Sin presencia digital — los clientes no pueden encontrar ${briefFields.business_name || 'el negocio'} en Google${ind ? ` para ${ind}` : ''} en ${briefFields.city || 'la zona'}`
-                    )
-                  }
+                  label={btnLabel('main_problem')}
+                  onClick={() => applyButton('main_problem')}
                 />
               </Field>
-              <Field label='Dolores específicos (máx 3)' dot='ai'>
+              <Field
+                label='Dolores específicos (máx 3)'
+                dot={provenanceOf('pain_1', 'pain_2', 'pain_3')}
+              >
                 <Input
                   value={briefFields.pain_1}
                   onChange={(e) => updateBrief('pain_1', e.target.value)}
@@ -1525,21 +1663,8 @@ export default function BriefPage() {
                   placeholder='3. '
                 />
                 <SuggestButton
-                  label='Sugerir dolores basado en industria'
-                  onClick={() => {
-                    updateBrief(
-                      'pain_1',
-                      'Depende 100% del boca a boca — sin pipeline digital de leads'
-                    );
-                    updateBrief(
-                      'pain_2',
-                      'Competidores con GBP verificado le roban clientes que buscan en Google'
-                    );
-                    updateBrief(
-                      'pain_3',
-                      'No puede cotizar rápido porque no tiene formulario ni landing'
-                    );
-                  }}
+                  label={btnLabel('pains')}
+                  onClick={() => applyButton('pains')}
                 />
               </Field>
               <Field label='Inversión actual en marketing' dot='ai'>
@@ -1571,14 +1696,14 @@ export default function BriefPage() {
                 completa.
               </p>
               <div className='grid grid-cols-2 gap-3'>
-                <Field label='Edad' dot='ai'>
+                <Field label='Edad' dot={provenanceOf('demo_age')}>
                   <Input
                     value={briefFields.demo_age}
                     onChange={(e) => updateBrief('demo_age', e.target.value)}
                     placeholder='Ej: 35-55'
                   />
                 </Field>
-                <Field label='Ocupación' dot='ai'>
+                <Field label='Ocupación' dot={provenanceOf('demo_occupation')}>
                   <Input
                     value={briefFields.demo_occupation}
                     onChange={(e) =>
@@ -1589,14 +1714,14 @@ export default function BriefPage() {
                 </Field>
               </div>
               <div className='grid grid-cols-2 gap-3'>
-                <Field label='Ingresos' dot='ai'>
+                <Field label='Ingresos' dot={provenanceOf('demo_income')}>
                   <Input
                     value={briefFields.demo_income}
                     onChange={(e) => updateBrief('demo_income', e.target.value)}
                     placeholder='Ej: $50K-$150K'
                   />
                 </Field>
-                <Field label='Idioma' dot='ai'>
+                <Field label='Idioma' dot={provenanceOf('demo_language')}>
                   <Input
                     value={briefFields.demo_language}
                     onChange={(e) =>
@@ -1607,26 +1732,12 @@ export default function BriefPage() {
                 </Field>
               </div>
               <SuggestButton
-                label='Sugerir demografía para la industria'
-                onClick={() => {
-                  updateBrief('demo_age', '35-55');
-                  updateBrief(
-                    'demo_occupation',
-                    'General contractor, event planner, property manager'
-                  );
-                  updateBrief(
-                    'demo_income',
-                    '$60K-$200K (B2B) / $40K-$80K (residential)'
-                  );
-                  updateBrief(
-                    'demo_language',
-                    'English + Spanish (bilingual market)'
-                  );
-                }}
+                label={btnLabel('demographics')}
+                onClick={() => applyButton('demographics')}
               />
               <Field
                 label='Psicografía (valores, miedos, aspiraciones)'
-                dot='ai'
+                dot={provenanceOf('psychographics')}
               >
                 <Textarea
                   value={briefFields.psychographics}
@@ -1637,16 +1748,14 @@ export default function BriefPage() {
                   placeholder='Qué valora, qué le da miedo, a qué aspira...'
                 />
                 <SuggestButton
-                  label='Sugerir psicografía'
-                  onClick={() =>
-                    updateBrief(
-                      'psychographics',
-                      'Valora: confiabilidad, puntualidad, limpieza. Miedo: unidades sucias que afecten reputación. Aspiración: proveedor invisible — cero quejas de usuarios.'
-                    )
-                  }
+                  label={btnLabel('psychographics')}
+                  onClick={() => applyButton('psychographics')}
                 />
               </Field>
-              <Field label='Comportamiento de búsqueda' dot='ai'>
+              <Field
+                label='Comportamiento de búsqueda'
+                dot={provenanceOf('search_behavior')}
+              >
                 <Textarea
                   value={briefFields.search_behavior}
                   onChange={(e) =>
@@ -1656,20 +1765,8 @@ export default function BriefPage() {
                   placeholder='Dónde busca servicios, cómo decide...'
                 />
                 <SuggestButton
-                  label='Sugerir comportamiento'
-                  onClick={() =>
-                    updateBrief(
-                      'search_behavior',
-                      // F-122 R-15 — sin industria declarada NO hay términos de
-                      // búsqueda que declarar: se OMITE la cláusula entera (no se
-                      // inventa un sustituto). Y la ranura de ciudad recibe el mismo
-                      // fallback que ya tienen sus dos hermanas — se corrige porque se
-                      // está editando esta línea, no se rediseña la plantilla (CL-113).
-                      ind
-                        ? `Busca en Google: ${ind} near me, ${ind} rental ${briefFields.city || 'su zona'}. Decide por: disponibilidad rápida + precio + reviews.`
-                        : 'Decide por: disponibilidad rápida + precio + reviews.'
-                    )
-                  }
+                  label={btnLabel('search_behavior')}
+                  onClick={() => applyButton('search_behavior')}
                 />
               </Field>
             </BlockCard>
@@ -1716,39 +1813,26 @@ export default function BriefPage() {
             {/* Block 5 */}
             <BlockCard title='Bloque 5 — Objetivos' badge='AI sugiere'>
               <div className='grid grid-cols-2 gap-3'>
-                <Field label='Meta a 90 días' dot='ai'>
+                <Field label='Meta a 90 días' dot={provenanceOf('goal_90')}>
                   <Input
                     value={briefFields.goal_90}
                     onChange={(e) => updateBrief('goal_90', e.target.value)}
                     placeholder='Ej: GBP verificado + 5 reseñas'
                   />
                   <SuggestButton
-                    label='Sugerir meta'
-                    onClick={() =>
-                      updateBrief(
-                        'goal_90',
-                        'GBP verificado y optimizado + website live + 5 reseñas de Google'
-                      )
-                    }
+                    label={btnLabel('goal_90')}
+                    onClick={() => applyButton('goal_90')}
                   />
                 </Field>
-                <Field label='Meta a 12 meses' dot='ai'>
+                <Field label='Meta a 12 meses' dot={provenanceOf('goal_12m')}>
                   <Input
                     value={briefFields.goal_12m}
                     onChange={(e) => updateBrief('goal_12m', e.target.value)}
                     placeholder='Ej: top 3 en Maps'
                   />
                   <SuggestButton
-                    label='Sugerir meta'
-                    onClick={() =>
-                      updateBrief(
-                        'goal_12m',
-                        // F-122 R-15 — sin industria declarada, se OMITE la cláusula
-                        // «para …». Ésta es la plantilla que produjo el
-                        // "Top 3 en Google Maps para other en [PENDIENTE]" de Clara V.
-                        `Top 3 en Google Maps${ind ? ` para ${ind}` : ''} en ${briefFields.city || 'su zona'} + 15-20 leads/mes`
-                      )
-                    }
+                    label={btnLabel('goal_12m')}
+                    onClick={() => applyButton('goal_12m')}
                   />
                 </Field>
               </div>
@@ -1795,6 +1879,12 @@ export default function BriefPage() {
                 aprobar. Ver `TestResidueNotice` para el mecanismo y el porqué de que
                 sea aviso y no gate (DT-04). */}
             <TestResidueNotice fields={briefFields} />
+
+            {/* F-123 R-18 — aviso ADVISORY de PROCEDENCIA, en el mismo lugar y por la
+                misma razón: visible ANTES de «Generar Brief» y de «Aprobar Brief». El
+                dato que lo puso acá: 6 de los 8 briefs contaminados ya estaban
+                `approved` ⇒ el punto de fuga es la APROBACIÓN, no la inserción. */}
+            <TemplateProvenanceNotice fields={briefFields} ctx={tplCtx} />
 
             {/* Actions */}
             <div className='flex flex-wrap gap-2'>
